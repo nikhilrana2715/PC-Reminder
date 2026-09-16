@@ -4,9 +4,11 @@
  * Multi-Tab Synchronization, Recurrence Engine, Dev QA Test Suite, Real-Time Alarms.
  */
 
-const API_BASE = (window.location.port === '3001' || !window.location.port)
-  ? '/api'
-  : `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const BACKEND_TUNNEL_URL = 'https://rotten-needles-drum.loca.lt/api';
+
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? (window.location.port === '3001' ? '/api' : 'http://localhost:3001/api')
+  : BACKEND_TUNNEL_URL;
 
 const firebaseConfig = {
   apiKey: "AIzaSyAZ1QBasuMSRvgxdI6psNOIIn03zvUlOCE",
