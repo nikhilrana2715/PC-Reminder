@@ -295,16 +295,20 @@ function getFormattedDate(offsetDays = 0) {
 // ==========================================================================
 
 function getAudioContext() {
-  if (!state.audioCtx) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (AudioContextClass) {
-      state.audioCtx = new AudioContextClass();
+  try {
+    if (!state.audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        state.audioCtx = new AudioContextClass();
+      }
     }
+    if (state.audioCtx && state.audioCtx.state === 'suspended') {
+      state.audioCtx.resume().catch(() => {});
+    }
+    return state.audioCtx;
+  } catch (e) {
+    return null;
   }
-  if (state.audioCtx && state.audioCtx.state === 'suspended') {
-    state.audioCtx.resume();
-  }
-  return state.audioCtx;
 }
 
 function playClickSound() {
@@ -1129,22 +1133,38 @@ document.addEventListener('DOMContentLoaded', async () => {
       .catch(err => console.error('Service Worker Registration Failed!', err));
   }
 
+  // Mobile touch audio unlock
+  window.addEventListener('touchstart', () => {
+    try {
+      if (state.audioCtx && state.audioCtx.state === 'suspended') {
+        state.audioCtx.resume().catch(() => {});
+      }
+    } catch (e) {}
+  }, { passive: true, once: true });
+
+  const addSafeListener = (id, event, handler) => {
+    const el = typeof id === 'string' ? document.getElementById(id) : id;
+    if (el) el.addEventListener(event, handler);
+  };
+
   // Header Actions
-  document.getElementById('btn-theme-toggle').addEventListener('click', toggleTheme);
+  addSafeListener('btn-theme-toggle', 'click', toggleTheme);
 
   const soundBtn = document.getElementById('btn-toggle-sound');
-  soundBtn.addEventListener('click', () => {
-    state.soundEnabled = !state.soundEnabled;
-    localStorage.setItem('neumoremind_sound_v1', state.soundEnabled);
-    if (state.soundEnabled) {
-      soundBtn.classList.add('active');
-      playClickSound();
-    } else {
-      soundBtn.classList.remove('active');
-    }
-  });
+  if (soundBtn) {
+    soundBtn.addEventListener('click', () => {
+      state.soundEnabled = !state.soundEnabled;
+      localStorage.setItem('neumoremind_sound_v1', state.soundEnabled);
+      if (state.soundEnabled) {
+        soundBtn.classList.add('active');
+        playClickSound();
+      } else {
+        soundBtn.classList.remove('active');
+      }
+    });
+  }
 
-  document.getElementById('btn-toggle-notif').addEventListener('click', () => {
+  addSafeListener('btn-toggle-notif', 'click', () => {
     playClickSound();
     requestNotificationPermission();
   });
@@ -1187,50 +1207,55 @@ document.addEventListener('DOMContentLoaded', async () => {
   const searchInput = document.getElementById('search-input');
   const clearSearchBtn = document.getElementById('clear-search-btn');
 
-  searchInput.addEventListener('input', (e) => {
-    state.searchQuery = e.target.value;
-    if (state.searchQuery) {
-      clearSearchBtn.classList.remove('hidden');
-    } else {
-      clearSearchBtn.classList.add('hidden');
-    }
-    renderApp();
-  });
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value;
+      if (clearSearchBtn) {
+        if (state.searchQuery) {
+          clearSearchBtn.classList.remove('hidden');
+        } else {
+          clearSearchBtn.classList.add('hidden');
+        }
+      }
+      renderApp();
+    });
+  }
 
-  clearSearchBtn.addEventListener('click', () => {
-    playClickSound();
-    searchInput.value = '';
-    state.searchQuery = '';
-    clearSearchBtn.classList.add('hidden');
-    renderApp();
-  });
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      playClickSound();
+      if (searchInput) searchInput.value = '';
+      state.searchQuery = '';
+      clearSearchBtn.classList.add('hidden');
+      renderApp();
+    });
+  }
 
   // Add Task Buttons
-  document.getElementById('sidebar-add-btn').addEventListener('click', () => openTaskModal());
-  document.getElementById('btn-header-add').addEventListener('click', () => openTaskModal());
-  document.getElementById('empty-add-btn').addEventListener('click', () => openTaskModal());
+  addSafeListener('sidebar-add-btn', 'click', () => openTaskModal());
+  addSafeListener('btn-header-add', 'click', () => openTaskModal());
+  addSafeListener('empty-add-btn', 'click', () => openTaskModal());
 
   // Modal Cancel & Close
-  document.getElementById('modal-close-btn').addEventListener('click', closeTaskModal);
-  document.getElementById('modal-cancel-btn').addEventListener('click', closeTaskModal);
-  document.getElementById('task-form').addEventListener('submit', handleSaveTask);
-  document.getElementById('modal-save-btn').addEventListener('click', handleSaveTask);
+  addSafeListener('modal-close-btn', 'click', closeTaskModal);
+  addSafeListener('modal-cancel-btn', 'click', closeTaskModal);
+  addSafeListener('task-form', 'submit', handleSaveTask);
 
   // Backup Modal
   const backupModal = document.getElementById('backup-modal');
-  document.getElementById('btn-backup').addEventListener('click', () => {
+  addSafeListener('btn-backup', 'click', () => {
     playClickSound();
-    backupModal.classList.remove('hidden');
+    if (backupModal) backupModal.classList.remove('hidden');
   });
-  document.getElementById('backup-close-btn').addEventListener('click', () => {
+  addSafeListener('backup-close-btn', 'click', () => {
     playClickSound();
-    backupModal.classList.add('hidden');
+    if (backupModal) backupModal.classList.add('hidden');
   });
-  document.getElementById('btn-export-json').addEventListener('click', exportBackupJSON);
+  addSafeListener('btn-export-json', 'click', exportBackupJSON);
 
   const importInput = document.getElementById('import-file-input');
-  document.getElementById('btn-import-json').addEventListener('click', () => importInput.click());
-  importInput.addEventListener('change', importBackupJSON);
+  addSafeListener('btn-import-json', 'click', () => { if (importInput) importInput.click(); });
+  if (importInput) importInput.addEventListener('change', importBackupJSON);
 
   // Task Cards Event Delegation (Complete, Pin, Edit, Delete, Test Ring)
   const taskContainer = document.getElementById('task-list-container');

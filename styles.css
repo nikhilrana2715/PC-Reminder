@@ -149,6 +149,8 @@ button, input, select, textarea {
   box-shadow: var(--neu-sm);
   color: var(--text-main);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: var(--theme-transition), transform 0.15s ease;
   position: relative;
 }
@@ -176,6 +178,8 @@ button, input, select, textarea {
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   background-color: var(--bg-surface);
   box-shadow: var(--neu-flat);
   color: var(--text-main);
