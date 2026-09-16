@@ -1110,16 +1110,26 @@ function handlePwaInstall() {
 // 8. EVENT LISTENERS SETUP
 // ==========================================================================
 
+function startReminderScheduler() {
+  setInterval(() => {
+    try {
+      if (state && typeof state.recalculateFilteredTasksAndMetrics === 'function') {
+        state.recalculateFilteredTasksAndMetrics();
+      }
+    } catch (e) {}
+  }, 30000);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-  initTheme();
-  updateOnlineStatus();
+  try { initTheme(); } catch (e) {}
+  try { updateOnlineStatus(); } catch (e) {}
 
   window.addEventListener('online', () => updateOnlineStatus(true));
   window.addEventListener('offline', () => updateOnlineStatus(false));
 
-  await renderApp();
-  startReminderScheduler();
-  updateNotificationBtnState();
+  try { await renderApp(); } catch (e) {}
+  try { startReminderScheduler(); } catch (e) {}
+  try { updateNotificationBtnState(); } catch (e) {}
 
   // Register Service Worker
   if ('serviceWorker' in navigator) {
