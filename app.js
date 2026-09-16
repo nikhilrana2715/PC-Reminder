@@ -1677,3 +1677,11 @@ function capitalize(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+// Global Window Exports for Mobile Inline Handlers
+window.openTaskModal = openTaskModal;
+window.closeTaskModal = closeTaskModal;
+window.handleSaveTask = handleSaveTask;
+window.toggleTheme = toggleTheme;
+window.setFilter = setFilter;
+window.setCategory = setCategory;

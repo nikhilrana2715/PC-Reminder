@@ -43,7 +43,7 @@
       </div>
 
       <!-- Quick Action: Add Task -->
-      <button class="neu-btn neu-btn-primary add-task-sidebar-btn" id="sidebar-add-btn">
+      <button class="neu-btn neu-btn-primary add-task-sidebar-btn" id="sidebar-add-btn" onclick="openTaskModal()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -223,7 +223,7 @@
           </div>
 
           <!-- Quick Add Button -->
-          <button class="neu-btn neu-btn-primary" id="btn-header-add">
+          <button class="neu-btn neu-btn-primary" id="btn-header-add" onclick="openTaskModal()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             <span>Add Task</span>
           </button>
@@ -244,7 +244,7 @@
           </div>
           <h3>No Reminders Found</h3>
           <p>You don't have any reminders matching the current view. Click <strong>"Add Task"</strong> to create one!</p>
-          <button class="neu-btn neu-btn-primary" id="empty-add-btn">
+          <button class="neu-btn neu-btn-primary" id="empty-add-btn" onclick="openTaskModal()">
             + Create New Reminder
           </button>
         </div>

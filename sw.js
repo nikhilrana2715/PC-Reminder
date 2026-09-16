@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neumoremind-v2';
+const CACHE_NAME = 'neumoremind-v4-network-first';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -12,7 +12,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching app shell');
+      console.log('[SW] Caching fresh app shell');
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
@@ -36,7 +36,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event - Cache Network Fallback
+// Fetch Event - Network-First Strategy for Instant Live Updates
 self.addEventListener('fetch', (event) => {
   // Don't cache API requests
   if (event.request.url.includes('/api/')) {
@@ -44,9 +44,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request).catch(() => caches.match('./index.html'));
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request) || caches.match('./index.html'))
   );
 });
 
