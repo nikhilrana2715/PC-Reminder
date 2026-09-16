@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NeumoRemind - Desktop Reminder & To-Do PWA</title>
+  <meta name="description" content="A beautiful Neumorphic Desktop Reminder and To-Do List Application with dark mode, web notifications, audio alarms, and offline PWA support.">
+  <meta name="theme-color" content="#e0e5ec" id="theme-color-meta">
+  
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo neu-circle-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            <circle cx="18" cy="4" r="3" fill="var(--primary-color)" stroke="none"></circle>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>NeumoRemind</h1>
+          <span class="version-tag">PC Desktop PWA</span>
+        </div>
+      </div>
+
+      <!-- Quick Action: Add Task -->
+      <button class="neu-btn neu-btn-primary add-task-sidebar-btn" id="sidebar-add-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>New Reminder</span>
+      </button>
+
+      <!-- Navigation Views -->
+      <nav class="nav-menu">
+        <div class="menu-label">Views</div>
+        <button class="nav-item active" data-filter="all" id="nav-all">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          <span>All Tasks</span>
+          <span class="badge" id="count-all">0</span>
+        </button>
+        <button class="nav-item" data-filter="today" id="nav-today">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          <span>Today</span>
+          <span class="badge" id="count-today">0</span>
+        </button>
+        <button class="nav-item" data-filter="upcoming" id="nav-upcoming">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span>Upcoming</span>
+          <span class="badge" id="count-upcoming">0</span>
+        </button>
+        <button class="nav-item" data-filter="overdue" id="nav-overdue">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <span>Overdue</span>
+          <span class="badge badge-warning" id="count-overdue">0</span>
+        </button>
+        <button class="nav-item" data-filter="completed" id="nav-completed">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <span>Completed</span>
+          <span class="badge" id="count-completed">0</span>
+        </button>
+      </nav>
+
+      <!-- Category Filter -->
+      <div class="nav-menu">
+        <div class="menu-label">Categories</div>
+        <button class="nav-item category-item active" data-category="all" id="cat-all">
+          <span class="cat-dot cat-dot-all"></span>
+          <span>All Categories</span>
+        </button>
+        <button class="nav-item category-item" data-category="Work" id="cat-work">
+          <span class="cat-dot cat-dot-work"></span>
+          <span>Work</span>
+        </button>
+        <button class="nav-item category-item" data-category="Personal" id="cat-personal">
+          <span class="cat-dot cat-dot-personal"></span>
+          <span>Personal</span>
+        </button>
+        <button class="nav-item category-item" data-category="Health" id="cat-health">
+          <span class="cat-dot cat-dot-health"></span>
+          <span>Health</span>
+        </button>
+        <button class="nav-item category-item" data-category="Finance" id="cat-finance">
+          <span class="cat-dot cat-dot-finance"></span>
+          <span>Finance</span>
+        </button>
+        <button class="nav-item category-item" data-category="Shopping" id="cat-shopping">
+          <span class="cat-dot cat-dot-shopping"></span>
+          <span>Shopping</span>
+        </button>
+      </div>
+
+      <!-- Stats Widget -->
+      <div class="neu-card stats-card">
+        <div class="stats-header">
+          <span>Completion Progress</span>
+          <span id="stats-percent">0%</span>
+        </div>
+        <div class="progress-ring-wrapper">
+          <svg class="progress-ring" width="100" height="100">
+            <circle class="progress-ring-bg" stroke-width="8" r="38" cx="50" cy="50"/>
+            <circle class="progress-ring-fill" id="progress-circle" stroke-width="8" r="38" cx="50" cy="50"/>
+          </svg>
+          <div class="progress-text" id="progress-text">0 / 0</div>
+        </div>
+      </div>
+
+      <!-- Footer Info & Data Backup -->
+      <div class="sidebar-footer">
+        <button class="neu-btn neu-btn-sm" id="btn-backup" title="Export / Import Backup">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <span>Backup Data</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Top Header -->
+      <header class="top-header">
+        <div class="header-search">
+          <div class="neu-input-wrapper">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="search-input" placeholder="Search reminders, notes, tags..." class="neu-input">
+            <button class="clear-search-btn hidden" id="clear-search-btn" title="Clear Search">&times;</button>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <!-- Notification Permission Toggle -->
+          <button class="neu-icon-btn" id="btn-toggle-notif" title="Enable Desktop Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="notif-icon-svg">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </button>
+
+          <!-- Audio Sound Effect Toggle -->
+          <button class="neu-icon-btn active" id="btn-toggle-sound" title="Toggle Audio Chimes & Clicks">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="sound-icon-svg">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+          </button>
+
+          <!-- Theme Switcher (Animated Light/Dark Mode) -->
+          <button class="neu-icon-btn theme-toggle-btn" id="btn-theme-toggle" title="Toggle Light/Dark Mode">
+            <div class="theme-icon-container">
+              <!-- Sun Icon -->
+              <svg class="theme-icon sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+              </svg>
+              <!-- Moon Icon -->
+              <svg class="theme-icon moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+              </svg>
+            </div>
+          </button>
+
+          <!-- Developer Test Mode Drawer Button -->
+          <button class="neu-btn neu-btn-sm" id="btn-dev-test" title="Open Developer QA Test Suite">
+            <span>🧪 Test Mode</span>
+          </button>
+
+          <!-- PWA Install Button (Shown if install prompt ready) -->
+          <button class="neu-btn neu-btn-accent pwa-install-btn hidden" id="btn-pwa-install">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Install App</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- View Banner & Toolbar -->
+      <section class="view-header">
+        <div class="view-title-group">
+          <h2 id="current-view-title">All Reminders</h2>
+          <p id="current-view-subtitle">Organize and manage your desktop tasks seamlessly.</p>
+        </div>
+
+        <div class="view-controls">
+          <!-- Custom Neumorphic Sort Dropdown -->
+          <div class="neu-custom-dropdown" id="sort-custom-dropdown">
+            <button type="button" class="neu-dropdown-trigger" id="sort-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span id="sort-selected-text">Sort: Due Date (Earliest)</span>
+              <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="neu-dropdown-menu" id="sort-dropdown-menu" role="listbox">
+              <div class="neu-dropdown-item selected" data-value="dueDateAsc">Sort: Due Date (Earliest)</div>
+              <div class="neu-dropdown-item" data-value="dueDateDesc">Sort: Due Date (Latest)</div>
+              <div class="neu-dropdown-item" data-value="priorityHigh">Sort: Priority (High First)</div>
+              <div class="neu-dropdown-item" data-value="titleAsc">Sort: Title (A-Z)</div>
+              <div class="neu-dropdown-item" data-value="createdDesc">Sort: Recently Added</div>
+            </div>
+          </div>
+
+          <!-- Quick Add Button -->
+          <button class="neu-btn neu-btn-primary" id="btn-header-add">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Add Task</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Active Filter Chips -->
+      <div class="filter-chips-row" id="filter-chips-row">
+        <!-- Dynamic chips rendered via JS -->
+      </div>
+
+      <!-- Task List Grid -->
+      <section class="task-list-container" id="task-list-container">
+        <!-- Dynamic tasks rendered here -->
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon neu-circle">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          </div>
+          <h3>No Reminders Found</h3>
+          <p>You don't have any reminders matching the current view. Click <strong>"Add Task"</strong> to create one!</p>
+          <button class="neu-btn neu-btn-primary" id="empty-add-btn">
+            + Create New Reminder
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Modal Dialog: Create / Edit Reminder -->
+  <div class="modal-overlay hidden" id="task-modal">
+    <div class="neu-card modal-card" role="dialog" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h3 id="modal-title">New Reminder</h3>
+        <button class="neu-icon-btn modal-close-btn" id="modal-close-btn" aria-label="Close modal">&times;</button>
+      </div>
+      
+      <form id="task-form" class="task-form">
+        <input type="hidden" id="task-id">
+
+        <!-- Title -->
+        <div class="form-group">
+          <label for="task-title">Title <span class="required">*</span></label>
+          <div class="neu-input-wrapper">
+            <input type="text" id="task-title" required placeholder="What do you need to remember?" class="neu-input">
+          </div>
+        </div>
+
+        <!-- Description / Notes -->
+        <div class="form-group">
+          <label for="task-notes">Description / Notes</label>
+          <div class="neu-textarea-wrapper">
+            <textarea id="task-notes" rows="3" placeholder="Add additional details, links, or sub-tasks..." class="neu-textarea"></textarea>
+          </div>
+        </div>
+
+        <!-- Row: Due Date & Time -->
+        <div class="form-row">
+          <div class="form-group col-half">
+            <label>Due Date</label>
+            <div class="neu-custom-datepicker" id="custom-datepicker">
+              <button type="button" class="neu-datepicker-trigger" id="datepicker-trigger">
+                <span id="datepicker-display-text">Select Date</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="picker-icon"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              </button>
+
+              <!-- Calendar Popover -->
+              <div class="neu-calendar-popover hidden" id="calendar-popover">
+                <div class="calendar-header">
+                  <button type="button" class="neu-icon-btn action-btn-sm" id="cal-prev-month" title="Previous Month">&lsaquo;</button>
+                  <span class="calendar-title" id="cal-month-year">September 2026</span>
+                  <button type="button" class="neu-icon-btn action-btn-sm" id="cal-next-month" title="Next Month">&rsaquo;</button>
+                </div>
+
+                <div class="calendar-weekdays">
+                  <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                </div>
+
+                <div class="calendar-days-grid" id="cal-days-grid">
+                  <!-- Rendered via JS -->
+                </div>
+
+                <div class="calendar-presets">
+                  <button type="button" class="preset-pill" id="preset-today">Today</button>
+                  <button type="button" class="preset-pill" id="preset-tomorrow">Tomorrow</button>
+                  <button type="button" class="preset-pill" id="preset-nextweek">Next Week</button>
+                </div>
+              </div>
+
+              <input type="hidden" id="task-due-date" value="">
+            </div>
+          </div>
+
+          <div class="form-group col-half">
+            <label>Due Time</label>
+            <div class="neu-custom-timepicker" id="custom-timepicker">
+              <button type="button" class="neu-timepicker-trigger" id="timepicker-trigger">
+                <span id="timepicker-display-text">18:00</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="picker-icon"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </button>
+
+              <!-- Time Popover -->
+              <div class="neu-time-popover hidden" id="time-popover">
+                <div class="time-presets-title">Quick Select</div>
+                <div class="time-presets-grid">
+                  <button type="button" class="time-preset-btn" data-time="09:00">09:00 AM</button>
+                  <button type="button" class="time-preset-btn" data-time="12:00">12:00 PM</button>
+                  <button type="button" class="time-preset-btn" data-time="15:00">03:00 PM</button>
+                  <button type="button" class="time-preset-btn" data-time="18:00">06:00 PM</button>
+                  <button type="button" class="time-preset-btn" data-time="20:00">08:00 PM</button>
+                  <button type="button" class="time-preset-btn" data-time="22:00">10:00 PM</button>
+                </div>
+
+                <div class="custom-time-inputs">
+                  <div class="time-input-col">
+                    <label>Hour</label>
+                    <div class="neu-input-wrapper time-num-wrapper">
+                      <input type="number" id="custom-hour" min="0" max="23" value="18" class="neu-input time-num-input">
+                    </div>
+                  </div>
+                  <span class="time-sep">:</span>
+                  <div class="time-input-col">
+                    <label>Minute</label>
+                    <div class="neu-input-wrapper time-num-wrapper">
+                      <input type="number" id="custom-min" min="0" max="59" step="5" value="00" class="neu-input time-num-input">
+                    </div>
+                  </div>
+                </div>
+
+                <button type="button" class="neu-btn neu-btn-primary neu-btn-sm time-apply-btn" id="time-apply-btn">Set Time</button>
+              </div>
+
+              <input type="hidden" id="task-due-time" value="18:00">
+            </div>
+          </div>
+        </div>
+
+        <!-- Row: Priority & Category -->
+        <div class="form-row">
+          <div class="form-group col-half">
+            <label>Priority</label>
+            <div class="neu-custom-dropdown" id="priority-custom-dropdown">
+              <button type="button" class="neu-dropdown-trigger" id="priority-dropdown-trigger">
+                <span id="priority-selected-text">🟡 Medium Priority</span>
+                <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <div class="neu-dropdown-menu" id="priority-dropdown-menu">
+                <div class="neu-dropdown-item" data-value="low">🟢 Low Priority</div>
+                <div class="neu-dropdown-item selected" data-value="medium">🟡 Medium Priority</div>
+                <div class="neu-dropdown-item" data-value="high">🔴 High Priority</div>
+              </div>
+              <input type="hidden" id="task-priority" value="medium">
+            </div>
+          </div>
+
+          <div class="form-group col-half">
+            <label>Category</label>
+            <div class="neu-custom-dropdown" id="category-custom-dropdown">
+              <button type="button" class="neu-dropdown-trigger" id="category-dropdown-trigger">
+                <span id="category-selected-text">👤 Personal</span>
+                <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <div class="neu-dropdown-menu" id="category-dropdown-menu">
+                <div class="neu-dropdown-item" data-value="Work">💼 Work</div>
+                <div class="neu-dropdown-item selected" data-value="Personal">👤 Personal</div>
+                <div class="neu-dropdown-item" data-value="Health">❤️ Health</div>
+              </div>
+              <input type="hidden" id="task-category" value="Personal">
+            </div>
+          </div>
+        </div>
+
+        <!-- Row: Recurrence & Tag -->
+        <div class="form-row">
+          <div class="form-group col-half">
+            <label>Repeat / Recurrence</label>
+            <div class="neu-custom-dropdown" id="recurrence-custom-dropdown">
+              <button type="button" class="neu-dropdown-trigger" id="recurrence-dropdown-trigger">
+                <span id="recurrence-selected-text">🔄 Once (No Repeat)</span>
+                <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <div class="neu-dropdown-menu" id="recurrence-dropdown-menu">
+                <div class="neu-dropdown-item selected" data-value="once">🔄 Once (No Repeat)</div>
+                <div class="neu-dropdown-item" data-value="daily">📅 Daily</div>
+                <div class="neu-dropdown-item" data-value="weekdays">💼 Weekdays (Mon-Fri)</div>
+                <div class="neu-dropdown-item" data-value="weekly">🗓️ Weekly</div>
+                <div class="neu-dropdown-item" data-value="monthly">📆 Monthly</div>
+              </div>
+              <input type="hidden" id="task-recurrence" value="once">
+            </div>
+          </div>
+
+          <div class="form-group col-half">
+            <label for="task-tag">Tag / Label</label>
+            <div class="neu-input-wrapper">
+              <input type="text" id="task-tag" placeholder="e.g. urgent, project, fitness" class="neu-input">
+            </div>
+          </div>
+        </div>
+
+        <!-- Row: Optional Location -->
+        <div class="form-group">
+          <label for="task-location">Location (Optional)</label>
+          <div class="neu-input-wrapper">
+            <input type="text" id="task-location" placeholder="e.g. Office, Zoom link, Gym" class="neu-input">
+          </div>
+        </div>
+
+        <!-- Row: Notification & Sound Toggles -->
+        <div class="form-row toggles-row">
+          <label class="neu-checkbox-label">
+            <input type="checkbox" id="task-notif-enabled" class="neu-checkbox" checked>
+            <span class="neu-checkbox-custom"></span>
+            <span>Web Push Notification</span>
+          </label>
+          <label class="neu-checkbox-label">
+            <input type="checkbox" id="task-sound-enabled" class="neu-checkbox" checked>
+            <span class="neu-checkbox-custom"></span>
+            <span>Sound Chime</span>
+          </label>
+        </div>
+
+        <!-- Checkbox: Pin Task -->
+        <div class="form-group checkbox-group">
+          <label class="neu-checkbox-label">
+            <input type="checkbox" id="task-pinned" class="neu-checkbox">
+            <span class="neu-checkbox-custom"></span>
+            <span>Pin to top of list</span>
+          </label>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="modal-footer">
+          <button type="button" class="neu-btn neu-btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" class="neu-btn neu-btn-primary" id="modal-save-btn">Save Reminder</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Dialog: Backup Import/Export -->
+  <div class="modal-overlay hidden" id="backup-modal">
+    <div class="neu-card modal-card" role="dialog" aria-labelledby="backup-modal-title">
+      <div class="modal-header">
+        <h3 id="backup-modal-title">Data Backup & Restore</h3>
+        <button class="neu-icon-btn modal-close-btn" id="backup-close-btn">&times;</button>
+      </div>
+      
+      <div class="backup-content">
+        <div class="backup-section">
+          <h4>Export Reminders</h4>
+          <p>Download a JSON backup file of all your reminders and settings to store safely on your PC.</p>
+          <button class="neu-btn neu-btn-primary" id="btn-export-json">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Export JSON File
+          </button>
+        </div>
+
+        <hr class="neu-divider">
+
+        <div class="backup-section">
+          <h4>Import Reminders</h4>
+          <p>Restore reminders from a previously saved JSON backup file.</p>
+          <input type="file" id="import-file-input" accept=".json" class="hidden">
+          <button class="neu-btn neu-btn-secondary" id="btn-import-json">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Choose JSON File
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dialog: Real-Time Alarm Ringing Overlay -->
+  <div class="modal-overlay hidden" id="alarm-modal" style="z-index: 2500;">
+    <div class="neu-card modal-card alarm-modal-card">
+      <div class="alarm-bell-icon neu-circle">
+        <svg class="bell-ringing-svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
+      </div>
+
+      <div class="alarm-header-text">
+        <span class="alarm-pulse-badge">⏰ ALARM RINGING</span>
+        <h2 id="alarm-task-title">Task Due Now</h2>
+        <p id="alarm-task-notes">Scheduled reminder time reached.</p>
+      </div>
+
+      <div class="alarm-actions-row">
+        <button type="button" class="neu-btn neu-btn-secondary" id="btn-snooze-alarm">
+          💤 Snooze (5 Min)
+        </button>
+        <button type="button" class="neu-btn neu-btn-primary" id="btn-stop-alarm">
+          ⏹️ Complete & Stop
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dialog: Developer QA Test Suite -->
+  <div class="modal-overlay hidden" id="dev-test-modal" style="z-index: 2400;">
+    <div class="neu-card modal-card">
+      <div class="modal-header">
+        <h3>🧪 Developer QA Test Suite</h3>
+        <button class="neu-icon-btn modal-close-btn" id="dev-test-close-btn">&times;</button>
+      </div>
+
+      <div class="dev-test-content">
+        <p class="dev-test-subtitle">Production diagnostic & verification controls for Push, Audio, Service Worker, and Database API.</p>
+        
+        <div class="dev-test-grid">
+          <button type="button" class="neu-btn neu-btn-primary" id="btn-test-send-push">
+            🔔 Send Test Web Push
+          </button>
+          <button type="button" class="neu-btn neu-btn-secondary" id="btn-test-sound">
+            🔊 Test Audio Chime
+          </button>
+          <button type="button" class="neu-btn neu-btn-accent" id="btn-test-create-1min">
+            ⚡ Create Reminder 1-Min From Now
+          </button>
+          <button type="button" class="neu-btn neu-btn-secondary" id="btn-test-check-sw">
+            📱 Check Service Worker
+          </button>
+          <button type="button" class="neu-btn neu-btn-secondary" id="btn-test-check-push">
+            🔑 Check Push Subscription
+          </button>
+        </div>
+
+        <div class="dev-status-box neu-card" id="dev-status-output">
+          <strong>Status:</strong> Ready for testing...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Online / Offline Status Bar -->
+  <div class="online-status-bar online" id="online-status-bar">
+    <span class="status-dot"></span>
+    <span id="status-text">Online — DB Sync Active</span>
+  </div>
+
+  <!-- Neumorphic Toast Notification Container -->
+  <div class="neu-toast-container" id="toast-container"></div>
+
+  <!-- Audio Chime Alarm & Sound Engine script + Main App script -->
+  <script src="app.js"></script>
+</body>
+</html>

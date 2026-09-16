@@ -1,0 +1,1644 @@
+/**
+ * NEUMOREMIEND - Full-Stack Desktop PWA Reminder Application Script
+ * Features: REST API Integration, Persistent DB Sync, VAPID Web Push Subscription,
+ * Multi-Tab Synchronization, Recurrence Engine, Dev QA Test Suite, Real-Time Alarms.
+ */
+
+const API_BASE = (window.location.port === '3001' || !window.location.port)
+  ? '/api'
+  : `${window.location.protocol}//${window.location.hostname}:3001/api`;
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAZ1QBasuMSRvgxdI6psNOIIn03zvUlOCE",
+  authDomain: "applock-security-app.firebaseapp.com",
+  databaseURL: "https://applock-security-app-default-rtdb.firebaseio.com",
+  projectId: "applock-security-app",
+  storageBucket: "applock-security-app.firebasestorage.app",
+  messagingSenderId: "837855615393",
+  appId: "1:837855615393:web:f0f2cc9057ef54208c13e0"
+};
+
+let cloudDb = null;
+if (typeof firebase !== 'undefined') {
+  try {
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    cloudDb = firebase.firestore();
+    cloudDb.enablePersistence({ synchronizeTabs: true }).catch(err => {
+      console.warn('Firestore offline persistence warning:', err);
+    });
+    console.log('🔥 Firebase Cloud Firestore Initialized!');
+  } catch (e) {
+    console.warn('Firebase initialization error:', e);
+  }
+}
+
+class AppState {
+  constructor() {
+    this.rawTasks = [];
+    this.tasks = [];
+    this.metrics = {
+      total: 0,
+      completed: 0,
+      today: 0,
+      upcoming: 0,
+      overdue: 0,
+      categories: { Work: 0, Personal: 0, Health: 0, Finance: 0, Shopping: 0 },
+      progressPercent: 0
+    };
+    this.currentFilter = 'all';
+    this.currentCategory = 'all';
+    this.currentSort = 'dueDateAsc';
+    this.searchQuery = '';
+    this.soundEnabled = localStorage.getItem('neumoremind_sound_v1') !== 'false';
+    this.audioCtx = null;
+    this.broadcast = 'BroadcastChannel' in window ? new BroadcastChannel('neumoremind_sync') : null;
+
+    if (this.broadcast) {
+      this.broadcast.onmessage = (e) => {
+        if (e.data && e.data.type === 'TASK_MUTATED') {
+          this.fetchReminders().then(() => renderApp());
+        }
+      };
+    }
+
+    if (cloudDb) {
+      this.initFirebaseListener();
+    }
+  }
+
+  initFirebaseListener() {
+    cloudDb.collection('reminders').onSnapshot((snapshot) => {
+      const items = [];
+      snapshot.forEach(doc => {
+        items.push({ id: doc.id, ...doc.data() });
+      });
+      this.rawTasks = items;
+      this.recalculateFilteredTasksAndMetrics();
+      updateOnlineStatus(true);
+      renderApp();
+    }, (err) => {
+      console.warn('Firebase listener error, falling back to REST API:', err);
+    });
+  }
+
+  recalculateFilteredTasksAndMetrics() {
+    let filtered = [...this.rawTasks];
+    const todayStr = getFormattedDate(0);
+
+    // Apply Filter
+    if (this.currentFilter === 'today') {
+      filtered = filtered.filter(t => t.date === todayStr && !t.completed);
+    } else if (this.currentFilter === 'upcoming') {
+      filtered = filtered.filter(t => t.date > todayStr && !t.completed);
+    } else if (this.currentFilter === 'overdue') {
+      filtered = filtered.filter(t => t.date < todayStr && !t.completed);
+    } else if (this.currentFilter === 'completed') {
+      filtered = filtered.filter(t => !!t.completed);
+    }
+
+    // Apply Category
+    if (this.currentCategory !== 'all') {
+      filtered = filtered.filter(t => (t.category || '').toLowerCase() === this.currentCategory.toLowerCase());
+    }
+
+    // Apply Search
+    if (this.searchQuery) {
+      const q = this.searchQuery.toLowerCase();
+      filtered = filtered.filter(t => 
+        (t.title && t.title.toLowerCase().includes(q)) ||
+        (t.description && t.description.toLowerCase().includes(q)) ||
+        (t.notes && t.notes.toLowerCase().includes(q)) ||
+        (t.tag && t.tag.toLowerCase().includes(q))
+      );
+    }
+
+    // Apply Sort
+    filtered.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+
+      if (this.currentSort === 'dueDateAsc') return (a.date + a.time).localeCompare(b.date + b.time);
+      if (this.currentSort === 'dueDateDesc') return (b.date + b.time).localeCompare(a.date + a.time);
+      if (this.currentSort === 'priority') {
+        const pMap = { high: 3, medium: 2, low: 1 };
+        return (pMap[b.priority] || 0) - (pMap[a.priority] || 0);
+      }
+      if (this.currentSort === 'titleAsc') return (a.title || '').localeCompare(b.title || '');
+      if (this.currentSort === 'createdDesc') return (b.created_at || 0) - (a.created_at || 0);
+      return 0;
+    });
+
+    this.tasks = filtered;
+
+    // Metrics
+    const total = this.rawTasks.length;
+    const completed = this.rawTasks.filter(t => !!t.completed).length;
+    const today = this.rawTasks.filter(t => t.date === todayStr && !t.completed).length;
+    const upcoming = this.rawTasks.filter(t => t.date > todayStr && !t.completed).length;
+    const overdue = this.rawTasks.filter(t => t.date < todayStr && !t.completed).length;
+
+    const categories = { Work: 0, Personal: 0, Health: 0, Finance: 0, Shopping: 0 };
+    this.rawTasks.forEach(t => {
+      const cat = t.category || 'Personal';
+      if (categories[cat] !== undefined) categories[cat]++;
+    });
+
+    const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    this.metrics = { total, completed, today, upcoming, overdue, categories, progressPercent };
+  }
+
+  async fetchReminders() {
+    if (cloudDb) return true;
+    try {
+      const queryParams = new URLSearchParams({
+        filter: this.currentFilter,
+        category: this.currentCategory,
+        search: this.searchQuery,
+        sort: this.currentSort
+      });
+
+      const res = await fetch(`${API_BASE}/reminders?${queryParams}`);
+      if (!res.ok) throw new Error('API server returned error status');
+
+      const data = await res.json();
+      this.tasks = data.reminders || [];
+      this.metrics = data.metrics || this.metrics;
+      updateOnlineStatus(true);
+      return true;
+    } catch (err) {
+      console.warn('Backend REST API offline, using local cache', err);
+      updateOnlineStatus(false);
+      return false;
+    }
+  }
+
+  async addTask(taskData) {
+    const taskId = `task-${Date.now()}`;
+    const newTask = {
+      id: taskId,
+      user_id: 'default_user',
+      title: taskData.title,
+      description: taskData.description || '',
+      notes: taskData.notes || '',
+      date: taskData.date || getFormattedDate(0),
+      time: taskData.time || '18:00',
+      scheduled_at: `${taskData.date || getFormattedDate(0)}T${taskData.time || '18:00'}:00`,
+      timezone: 'Asia/Kolkata',
+      priority: taskData.priority || 'medium',
+      category: taskData.category || 'Personal',
+      tag: taskData.tag || '',
+      location: taskData.location || '',
+      recurrence_type: taskData.recurrence_type || 'once',
+      notification_enabled: taskData.notification_enabled !== undefined ? taskData.notification_enabled : 1,
+      sound_enabled: taskData.sound_enabled !== undefined ? taskData.sound_enabled : 1,
+      pinned: !!taskData.pinned,
+      completed: 0,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+
+    if (cloudDb) {
+      await cloudDb.collection('reminders').doc(taskId).set(newTask);
+    }
+
+    try {
+      fetch(`${API_BASE}/reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTask)
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
+    return newTask;
+  }
+
+  async updateTask(id, updates) {
+    const payload = {
+      ...updates,
+      updated_at: Date.now()
+    };
+    if (updates.date && updates.time) {
+      payload.scheduled_at = `${updates.date}T${updates.time}:00`;
+    }
+
+    if (cloudDb) {
+      await cloudDb.collection('reminders').doc(id).update(payload);
+    }
+
+    try {
+      fetch(`${API_BASE}/reminders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
+    return payload;
+  }
+
+  async deleteTask(id) {
+    if (cloudDb) {
+      await cloudDb.collection('reminders').doc(id).delete();
+    }
+
+    try {
+      fetch(`${API_BASE}/reminders/${id}`, { method: 'DELETE' }).catch(() => {});
+    } catch (e) {}
+
+    if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
+    return true;
+  }
+
+  async toggleComplete(id) {
+    const existing = this.rawTasks.find(t => t.id === id) || this.tasks.find(t => t.id === id);
+    const newCompleted = existing ? (existing.completed ? 0 : 1) : 1;
+
+    const payload = {
+      completed: newCompleted,
+      completed_at: newCompleted ? new Date().toISOString() : null,
+      updated_at: Date.now()
+    };
+
+    if (cloudDb) {
+      await cloudDb.collection('reminders').doc(id).update(payload);
+    }
+
+    try {
+      fetch(`${API_BASE}/reminders/${id}/complete`, { method: 'POST' }).catch(() => {});
+    } catch (e) {}
+
+    if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
+    return payload;
+  }
+}
+
+const state = new AppState();
+
+// Helper to format YYYY-MM-DD
+function getFormattedDate(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+
+// ==========================================================================
+// 2. WEB AUDIO SYNTHESIZER (TACTILE CLICKS & ALARMS)
+// ==========================================================================
+
+function getAudioContext() {
+  if (!state.audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      state.audioCtx = new AudioContextClass();
+    }
+  }
+  if (state.audioCtx && state.audioCtx.state === 'suspended') {
+    state.audioCtx.resume();
+  }
+  return state.audioCtx;
+}
+
+function playClickSound() {
+  if (!state.soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.05);
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.05);
+  } catch (e) {}
+}
+
+function playSuccessChime() {
+  if (!state.soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+
+    const playNote = (freq, delay, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + delay);
+      gain.gain.setValueAtTime(0.12, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + duration);
+    };
+
+    playNote(523.25, 0, 0.15); // C5
+    playNote(659.25, 0.1, 0.2); // E5
+    playNote(783.99, 0.2, 0.3); // G5
+  } catch (e) {}
+}
+
+function playAlarmChime() {
+  if (!state.soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+
+    const playBell = (freq, start, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + start);
+      gain.gain.setValueAtTime(0.2, now + start);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + duration);
+    };
+
+    playBell(880, 0, 0.5);   // A5
+    playBell(1108.73, 0.2, 0.5); // C#6
+    playBell(1318.51, 0.4, 0.8); // E6
+  } catch (e) {}
+}
+
+
+// ==========================================================================
+// 3. THEME MANAGER & ONLINE/OFFLINE BADGE
+// ==========================================================================
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('neumoremind_theme_v1');
+  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');
+
+  setTheme(initialTheme);
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('neumoremind_theme_v1', theme);
+
+  const metaThemeColor = document.getElementById('theme-color-meta');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', theme === 'dark' ? '#191c24' : '#e6ecf5');
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'light' ? 'dark' : 'light';
+  setTheme(next);
+  playClickSound();
+}
+
+function updateOnlineStatus(isOnline = navigator.onLine) {
+  const bar = document.getElementById('online-status-bar');
+  const text = document.getElementById('status-text');
+  if (!bar || !text) return;
+
+  if (isOnline) {
+    bar.className = 'online-status-bar online';
+    text.textContent = 'Online — DB Sync Active';
+  } else {
+    bar.className = 'online-status-bar offline';
+    text.textContent = 'Offline Mode (Local Cache)';
+  }
+}
+
+
+// ==========================================================================
+// 4. WEB PUSH NOTIFICATIONS & REAL-TIME ALARM ENGINE
+// ==========================================================================
+
+async function subscribeUserToPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn('Web Push is not supported in this browser.');
+    return false;
+  }
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+
+    const keyRes = await fetch(`${API_BASE}/vapid-public-key`);
+    const { publicKey } = await keyRes.json();
+
+    if (!publicKey) {
+      console.warn('VAPID Public Key not returned by backend server.');
+      return false;
+    }
+
+    const applicationServerKey = urlBase64ToUint8Array(publicKey);
+
+    let subscription = await swReg.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey
+      });
+    }
+
+    await fetch(`${API_BASE}/push-subscriptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription.toJSON())
+    });
+
+    console.log('✅ Web Push Subscription registered with backend!');
+    updateNotificationBtnState('granted');
+    return true;
+  } catch (err) {
+    console.error('Push Subscription failed:', err);
+    return false;
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window) {
+    Notification.requestPermission().then(permission => {
+      updateNotificationBtnState(permission);
+      if (permission === 'granted') {
+        subscribeUserToPush();
+        showToast('🔔 Web Push Notifications Enabled!', 'success');
+      }
+    });
+  }
+}
+
+function updateNotificationBtnState(permission = Notification.permission) {
+  const btn = document.getElementById('btn-toggle-notif');
+  if (!btn) return;
+  if (permission === 'granted') {
+    btn.classList.add('active');
+    btn.title = 'Web Push Notifications Active';
+  } else {
+    btn.classList.remove('active');
+    btn.title = 'Click to Enable Web Push Notifications';
+  }
+}
+
+class RealTimeAlarmEngine {
+  constructor() {
+    this.activeTask = null;
+    this.ringInterval = null;
+  }
+
+  startRinging(task) {
+    this.stopRinging();
+    this.activeTask = task;
+
+    const modal = document.getElementById('alarm-modal');
+    const title = document.getElementById('alarm-task-title');
+    const notes = document.getElementById('alarm-task-notes');
+
+    if (title) title.textContent = task.title;
+    if (notes) notes.textContent = task.notes || task.description || `Scheduled for ${task.time || 'today'} (${task.category || 'General'})`;
+
+    if (modal) modal.classList.remove('hidden');
+
+    playAlarmChime();
+    this.ringInterval = setInterval(() => {
+      playAlarmChime();
+    }, 1600);
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(`⏰ ALARM RINGING: ${task.title}`, {
+        body: task.notes || task.description || `Scheduled time reached (${task.time})`,
+        icon: 'assets/icons/favicon.svg',
+        tag: task.id,
+        requireInteraction: true
+      });
+    }
+  }
+
+  stopRinging() {
+    if (this.ringInterval) {
+      clearInterval(this.ringInterval);
+      this.ringInterval = null;
+    }
+    this.activeTask = null;
+    const modal = document.getElementById('alarm-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  async snooze(minutes = 5) {
+    if (this.activeTask) {
+      const id = this.activeTask.id;
+      this.stopRinging();
+
+      try {
+        await fetch(`${API_BASE}/reminders/${id}/snooze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minutes })
+        });
+        await state.fetchReminders();
+        renderApp();
+        showToast(`💤 Alarm Snoozed for ${minutes} minutes`, 'info');
+      } catch (err) {
+        showToast('⚠️ Failed to snooze reminder', 'danger');
+      }
+    } else {
+      this.stopRinging();
+    }
+  }
+
+  async stopAndComplete() {
+    if (this.activeTask) {
+      const id = this.activeTask.id;
+      this.stopRinging();
+      await state.toggleComplete(id);
+      renderApp();
+      showToast('⏹️ Alarm Stopped & Reminder Marked Complete!', 'success');
+    } else {
+      this.stopRinging();
+    }
+  }
+}
+
+const AlarmEngine = new RealTimeAlarmEngine();
+
+
+// ==========================================================================
+// 5. DOM RENDERING & FILTERS
+// ==========================================================================
+
+async function renderApp() {
+  await state.fetchReminders();
+  renderTaskList();
+  renderCountersAndProgress();
+}
+
+function renderTaskList() {
+  const container = document.getElementById('task-list-container');
+  const emptyState = document.getElementById('empty-state');
+  const tasks = state.tasks;
+
+  const existingCards = container.querySelectorAll('.task-card');
+  existingCards.forEach(card => card.remove());
+
+  if (tasks.length === 0) {
+    emptyState.classList.remove('hidden');
+    return;
+  } else {
+    emptyState.classList.add('hidden');
+  }
+
+  const todayStr = getFormattedDate(0);
+
+  tasks.forEach(task => {
+    const card = document.createElement('div');
+    const isCompleted = task.completed === 1 || task.completed === true;
+    const isPinned = !!task.pinned;
+
+    card.className = `neu-card task-card ${isCompleted ? 'completed' : ''} ${isPinned ? 'pinned' : ''}`;
+    card.dataset.id = task.id;
+
+    let dateStatusClass = '';
+    let formattedDateText = '';
+    if (task.date) {
+      if (task.date === todayStr) {
+        dateStatusClass = 'due-today';
+        formattedDateText = `Today${task.time ? ' at ' + task.time : ''}`;
+      } else if (task.date < todayStr && !isCompleted) {
+        dateStatusClass = 'due-overdue';
+        formattedDateText = `Overdue (${task.date})`;
+      } else {
+        formattedDateText = `${task.date}${task.time ? ' ' + task.time : ''}`;
+      }
+    }
+
+    card.innerHTML = `
+      <div class="task-header-row">
+        <button type="button" class="task-checkbox-btn" data-action="complete" data-id="${task.id}" title="${isCompleted ? 'Mark pending' : 'Mark completed'}">
+          ${isCompleted ? '✓' : ''}
+        </button>
+
+        <div class="task-title-group">
+          <h4 class="task-title">${escapeHtml(task.title)}</h4>
+          <div class="task-meta-top">
+            <span class="priority-pill priority-${task.priority || 'medium'}">● ${(task.priority || 'medium').toUpperCase()}</span>
+            ${task.category ? `<span class="category-tag">#${escapeHtml(task.category)}</span>` : ''}
+            ${task.tag ? `<span class="category-tag">🏷️ ${escapeHtml(task.tag)}</span>` : ''}
+            ${task.recurrence_type && task.recurrence_type !== 'once' ? `<span class="category-tag">🔄 ${escapeHtml(task.recurrence_type)}</span>` : ''}
+          </div>
+        </div>
+
+        <button type="button" class="neu-icon-btn action-btn-sm" data-action="pin" data-id="${task.id}" title="${isPinned ? 'Unpin task' : 'Pin task'}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+        </button>
+      </div>
+
+      ${(task.notes || task.description) ? `<p class="task-notes">${escapeHtml(task.notes || task.description)}</p>` : ''}
+      ${task.location ? `<p class="task-notes" style="font-size:0.8rem;">📍 ${escapeHtml(task.location)}</p>` : ''}
+
+      <div class="task-footer-row">
+        <div class="due-date-badge ${dateStatusClass}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          <span>${formattedDateText || 'No due date'}</span>
+        </div>
+
+        <div class="task-actions">
+          <button type="button" class="neu-btn neu-btn-sm action-btn-sm" data-action="test-alarm" data-id="${task.id}" title="Test Real-Time Alarm Ringing">
+            🔔 Test Ring
+          </button>
+          <button type="button" class="neu-icon-btn action-btn-sm" data-action="edit" data-id="${task.id}" title="Edit Reminder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>
+          <button type="button" class="neu-icon-btn action-btn-sm" data-action="delete" data-id="${task.id}" title="Delete Reminder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
+      </div>
+    `;
+
+    container.insertBefore(card, emptyState);
+  });
+
+  renderFilterChips();
+}
+
+function renderCountersAndProgress() {
+  const m = state.metrics;
+
+  document.getElementById('count-all').textContent = m.total;
+  document.getElementById('count-today').textContent = m.today;
+  document.getElementById('count-upcoming').textContent = m.upcoming;
+  document.getElementById('count-overdue').textContent = m.overdue;
+  document.getElementById('count-completed').textContent = m.completed;
+
+  // Category counts
+  if (m.categories) {
+    const c = m.categories;
+    const updateCatCount = (catId, count) => {
+      const el = document.getElementById(catId);
+      if (el) {
+        let badge = el.querySelector('.badge');
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'badge';
+          el.appendChild(badge);
+        }
+        badge.textContent = count || 0;
+      }
+    };
+    updateCatCount('cat-work', c.Work);
+    updateCatCount('cat-personal', c.Personal);
+    updateCatCount('cat-health', c.Health);
+    updateCatCount('cat-finance', c.Finance);
+    updateCatCount('cat-shopping', c.Shopping);
+  }
+
+  document.getElementById('stats-percent').textContent = `${m.progressPercent}%`;
+  document.getElementById('progress-text').textContent = `${m.completed} / ${m.total}`;
+
+  const circle = document.getElementById('progress-circle');
+  if (circle) {
+    const circumference = 2 * Math.PI * 38; // r=38
+    const offset = circumference - (m.progressPercent / 100) * circumference;
+    circle.style.strokeDashoffset = offset;
+  }
+}
+
+function renderFilterChips() {
+  const chipsRow = document.getElementById('filter-chips-row');
+  chipsRow.innerHTML = '';
+
+  if (state.currentFilter !== 'all') {
+    chipsRow.appendChild(createChip(`View: ${capitalize(state.currentFilter)}`, () => setFilter('all')));
+  }
+
+  if (state.currentCategory !== 'all') {
+    chipsRow.appendChild(createChip(`Category: ${state.currentCategory}`, () => setCategory('all')));
+  }
+
+  if (state.searchQuery) {
+    chipsRow.appendChild(createChip(`Search: "${state.searchQuery}"`, () => {
+      document.getElementById('search-input').value = '';
+      state.searchQuery = '';
+      document.getElementById('clear-search-btn').classList.add('hidden');
+      renderApp();
+    }));
+  }
+}
+
+function createChip(label, onRemove) {
+  const chip = document.createElement('div');
+  chip.className = 'chip active';
+  chip.innerHTML = `<span>${escapeHtml(label)}</span> <span>&times;</span>`;
+  chip.onclick = () => {
+    playClickSound();
+    onRemove();
+  };
+  return chip;
+}
+
+function setFilter(filter) {
+  state.currentFilter = filter;
+
+  document.querySelectorAll('.nav-menu .nav-item').forEach(btn => {
+    if (btn.dataset.filter === filter) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  const titles = {
+    all: 'All Reminders',
+    today: 'Today\'s Reminders',
+    upcoming: 'Upcoming Tasks',
+    overdue: 'Overdue Reminders',
+    completed: 'Completed Tasks'
+  };
+
+  document.getElementById('current-view-title').textContent = titles[filter] || 'Reminders';
+  renderApp();
+}
+
+function setCategory(category) {
+  state.currentCategory = category;
+
+  document.querySelectorAll('.category-item').forEach(btn => {
+    if (btn.dataset.category === category) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  renderApp();
+}
+
+
+// ==========================================================================
+// 6. TASK MODAL & FORM HANDLERS
+// ==========================================================================
+
+function openTaskModal(taskId = null) {
+  playClickSound();
+  const modal = document.getElementById('task-modal');
+  const form = document.getElementById('task-form');
+  const modalTitle = document.getElementById('modal-title');
+
+  form.reset();
+
+  const titleInput = document.getElementById('task-title');
+  const notesInput = document.getElementById('task-notes');
+  const tagInput = document.getElementById('task-tag');
+  const locationInput = document.getElementById('task-location');
+  const notifToggle = document.getElementById('task-notif-enabled');
+  const soundToggle = document.getElementById('task-sound-enabled');
+
+  if (titleInput) {
+    titleInput.value = '';
+    titleInput.style.border = '';
+  }
+  if (notesInput) notesInput.value = '';
+  if (tagInput) tagInput.value = '';
+  if (locationInput) locationInput.value = '';
+
+  if (taskId) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (task) {
+      modalTitle.textContent = 'Edit Reminder';
+      document.getElementById('task-id').value = task.id;
+      if (titleInput) titleInput.value = task.title;
+      if (notesInput) notesInput.value = task.notes || task.description || '';
+      if (tagInput) tagInput.value = task.tag || '';
+      if (locationInput) locationInput.value = task.location || '';
+      if (notifToggle) notifToggle.checked = task.notification_enabled !== 0;
+      if (soundToggle) soundToggle.checked = task.sound_enabled !== 0;
+
+      selectDateValue(task.date || getFormattedDate(0));
+      selectTimeValue(task.time || '18:00');
+      setCustomDropdownValue('priority-custom-dropdown', 'task-priority', task.priority || 'medium');
+      setCustomDropdownValue('category-custom-dropdown', 'task-category', task.category || 'Personal');
+      setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', task.recurrence_type || 'once');
+      document.getElementById('task-pinned').checked = !!task.pinned;
+    }
+  } else {
+    modalTitle.textContent = 'New Reminder';
+    document.getElementById('task-id').value = '';
+    selectDateValue(getFormattedDate(0));
+    selectTimeValue('18:00');
+    setCustomDropdownValue('priority-custom-dropdown', 'task-priority', 'medium');
+    setCustomDropdownValue('category-custom-dropdown', 'task-category', 'Personal');
+    setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', 'once');
+    if (notifToggle) notifToggle.checked = true;
+    if (soundToggle) soundToggle.checked = true;
+  }
+
+  modal.classList.remove('hidden');
+  if (titleInput) titleInput.focus();
+}
+
+function closeTaskModal() {
+  playClickSound();
+  document.getElementById('task-modal').classList.add('hidden');
+}
+
+async function handleSaveTask(e) {
+  if (e) e.preventDefault();
+
+  const idInput = document.getElementById('task-id');
+  const titleInput = document.getElementById('task-title');
+  const notesInput = document.getElementById('task-notes');
+  const dueDateInput = document.getElementById('task-due-date');
+  const dueTimeInput = document.getElementById('task-due-time');
+  const priorityInput = document.getElementById('task-priority');
+  const categoryInput = document.getElementById('task-category');
+  const recurrenceInput = document.getElementById('task-recurrence');
+  const tagInput = document.getElementById('task-tag');
+  const locationInput = document.getElementById('task-location');
+  const notifInput = document.getElementById('task-notif-enabled');
+  const soundInput = document.getElementById('task-sound-enabled');
+  const pinnedInput = document.getElementById('task-pinned');
+
+  const title = titleInput.value.trim();
+  if (!title) {
+    titleInput.style.border = '2px solid var(--danger-color)';
+    titleInput.focus();
+    showToast('⚠️ Please enter a reminder title!', 'warning');
+    return;
+  }
+  titleInput.style.border = '';
+
+  const id = idInput.value;
+  const payload = {
+    title,
+    description: notesInput.value.trim(),
+    notes: notesInput.value.trim(),
+    date: dueDateInput.value || getFormattedDate(0),
+    time: dueTimeInput.value || '18:00',
+    priority: priorityInput.value || 'medium',
+    category: categoryInput.value || 'Personal',
+    recurrence_type: recurrenceInput.value || 'once',
+    tag: tagInput ? tagInput.value.trim() : '',
+    location: locationInput ? locationInput.value.trim() : '',
+    notification_enabled: notifInput ? (notifInput.checked ? 1 : 0) : 1,
+    sound_enabled: soundInput ? (soundInput.checked ? 1 : 0) : 1,
+    pinned: pinnedInput ? pinnedInput.checked : false
+  };
+
+  try {
+    if (id) {
+      await state.updateTask(id, payload);
+      showToast('✅ Reminder Updated Successfully!', 'success');
+    } else {
+      await state.addTask(payload);
+      showToast('✨ New Reminder Saved to DB!', 'success');
+    }
+    playClickSound();
+    closeTaskModal();
+    renderApp();
+  } catch (err) {
+    showToast('❌ Error saving task to database', 'danger');
+  }
+}
+
+
+// ==========================================================================
+// 7. DEVELOPER QA TEST SUITE & PWA INSTALL
+// ==========================================================================
+
+function setupDevTestMode() {
+  const modal = document.getElementById('dev-test-modal');
+  const statusBox = document.getElementById('dev-status-output');
+  if (!modal) return;
+
+  const logStatus = (msg) => {
+    if (statusBox) statusBox.innerHTML = `<strong>Status:</strong> ${msg}`;
+  };
+
+  document.getElementById('btn-dev-test').addEventListener('click', () => {
+    playClickSound();
+    modal.classList.remove('hidden');
+    logStatus('Developer Test Suite Ready.');
+  });
+
+  document.getElementById('dev-test-close-btn').addEventListener('click', () => {
+    playClickSound();
+    modal.classList.add('hidden');
+  });
+
+  document.getElementById('btn-test-send-push').addEventListener('click', async () => {
+    playClickSound();
+    logStatus('Sending Test Web Push to server...');
+    try {
+      const res = await fetch(`${API_BASE}/test-push`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        logStatus(`✅ Web Push Sent! Response: ${data.message}`);
+        showToast('🔔 Test Web Push Dispatched!', 'success');
+      } else {
+        logStatus(`❌ Push Error: ${data.error}`);
+        showToast(`⚠️ Push Error: ${data.error}`, 'warning');
+      }
+    } catch (e) {
+      logStatus(`❌ Fetch Error: ${e.message}`);
+    }
+  });
+
+  document.getElementById('btn-test-sound').addEventListener('click', () => {
+    logStatus('🔊 Testing Audio Alarm Chime...');
+    playAlarmChime();
+    showToast('🔊 Audio Chime Playing', 'info');
+  });
+
+  document.getElementById('btn-test-create-1min').addEventListener('click', async () => {
+    playClickSound();
+    logStatus('Creating test reminder 1 minute in future...');
+
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 1);
+
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+
+    const testTask = {
+      title: '⚡ 1-Minute QA Test Alarm',
+      notes: 'This test reminder was scheduled 1 minute ago to verify real-time alarms.',
+      date: `${year}-${month}-${day}`,
+      time: `${h}:${m}`,
+      priority: 'high',
+      category: 'Work'
+    };
+
+    try {
+      await state.addTask(testTask);
+      logStatus(`✅ Created test reminder for ${h}:${m}! Close tab to test background push.`);
+      showToast(`⚡ Test Reminder set for ${h}:${m}!`, 'success');
+      modal.classList.add('hidden');
+      renderApp();
+    } catch (e) {
+      logStatus(`❌ Error creating task: ${e.message}`);
+    }
+  });
+
+  document.getElementById('btn-test-check-sw').addEventListener('click', async () => {
+    if (!('serviceWorker' in navigator)) {
+      logStatus('❌ Service Worker NOT supported');
+      return;
+    }
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg) {
+      logStatus(`✅ Service Worker Active! Scope: ${reg.scope}`);
+    } else {
+      logStatus('⚠️ No active Service Worker registration found.');
+    }
+  });
+
+  document.getElementById('btn-test-check-push').addEventListener('click', async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      logStatus('❌ Web Push NOT supported');
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      logStatus(`✅ Active Push Subscription found!\nEndpoint: ${sub.endpoint.slice(0, 45)}...`);
+    } else {
+      logStatus('⚠️ No Push Subscription found. Click Notification Bell icon in header to subscribe.');
+    }
+  });
+}
+
+function exportBackupJSON() {
+  playClickSound();
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.tasks, null, 2));
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute("href", dataStr);
+  downloadAnchor.setAttribute("download", `neumoremind_backup_${getFormattedDate(0)}.json`);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
+}
+
+function importBackupJSON(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async function(event) {
+    try {
+      const importedTasks = JSON.parse(event.target.result);
+      if (Array.isArray(importedTasks)) {
+        for (const t of importedTasks) {
+          await state.addTask(t);
+        }
+        await renderApp();
+        showToast('✅ Reminders imported to database!', 'success');
+        document.getElementById('backup-modal').classList.add('hidden');
+      } else {
+        alert('Invalid backup file format.');
+      }
+    } catch (err) {
+      alert('Error parsing JSON file.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+let deferredPwaPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPwaPrompt = e;
+  const installBtn = document.getElementById('btn-pwa-install');
+  if (installBtn) installBtn.classList.remove('hidden');
+});
+
+function handlePwaInstall() {
+  if (!deferredPwaPrompt) {
+    alert('PWA installation is supported via Chrome / Edge address bar icon.');
+    return;
+  }
+  deferredPwaPrompt.prompt();
+  deferredPwaPrompt.userChoice.then((result) => {
+    if (result.outcome === 'accepted') {
+      console.log('User accepted PWA installation');
+    }
+    deferredPwaPrompt = null;
+    document.getElementById('btn-pwa-install').classList.add('hidden');
+  });
+}
+
+
+// ==========================================================================
+// 8. EVENT LISTENERS SETUP
+// ==========================================================================
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
+  updateOnlineStatus();
+
+  window.addEventListener('online', () => updateOnlineStatus(true));
+  window.addEventListener('offline', () => updateOnlineStatus(false));
+
+  await renderApp();
+  startReminderScheduler();
+  updateNotificationBtnState();
+
+  // Register Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => {
+        console.log('Service Worker Registered!', reg);
+        if (Notification.permission === 'granted') {
+          subscribeUserToPush();
+        }
+      })
+      .catch(err => console.error('Service Worker Registration Failed!', err));
+  }
+
+  // Header Actions
+  document.getElementById('btn-theme-toggle').addEventListener('click', toggleTheme);
+
+  const soundBtn = document.getElementById('btn-toggle-sound');
+  soundBtn.addEventListener('click', () => {
+    state.soundEnabled = !state.soundEnabled;
+    localStorage.setItem('neumoremind_sound_v1', state.soundEnabled);
+    if (state.soundEnabled) {
+      soundBtn.classList.add('active');
+      playClickSound();
+    } else {
+      soundBtn.classList.remove('active');
+    }
+  });
+
+  document.getElementById('btn-toggle-notif').addEventListener('click', () => {
+    playClickSound();
+    requestNotificationPermission();
+  });
+
+  // Navigation Filter Buttons
+  document.querySelectorAll('.nav-menu .nav-item[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      playClickSound();
+      setFilter(btn.dataset.filter);
+    });
+  });
+
+  // Category Filter Buttons
+  document.querySelectorAll('.category-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      playClickSound();
+      setCategory(btn.dataset.category);
+    });
+  });
+
+  // Custom Neumorphic Dropdowns Setup
+  setupCustomDropdown('sort-custom-dropdown', null, (val) => {
+    state.currentSort = val;
+    renderApp();
+  });
+  setupCustomDropdown('priority-custom-dropdown', 'task-priority', null);
+  setupCustomDropdown('category-custom-dropdown', 'task-category', null);
+  setupCustomDropdown('recurrence-custom-dropdown', 'task-recurrence', null);
+
+  // Custom Neumorphic Date & Time Pickers Setup
+  setupCustomDatePicker();
+  setupCustomTimePicker();
+
+  // Close custom popovers on click outside
+  document.addEventListener('click', () => {
+    closeAllPopovers();
+  });
+
+  // Search Input
+  const searchInput = document.getElementById('search-input');
+  const clearSearchBtn = document.getElementById('clear-search-btn');
+
+  searchInput.addEventListener('input', (e) => {
+    state.searchQuery = e.target.value;
+    if (state.searchQuery) {
+      clearSearchBtn.classList.remove('hidden');
+    } else {
+      clearSearchBtn.classList.add('hidden');
+    }
+    renderApp();
+  });
+
+  clearSearchBtn.addEventListener('click', () => {
+    playClickSound();
+    searchInput.value = '';
+    state.searchQuery = '';
+    clearSearchBtn.classList.add('hidden');
+    renderApp();
+  });
+
+  // Add Task Buttons
+  document.getElementById('sidebar-add-btn').addEventListener('click', () => openTaskModal());
+  document.getElementById('btn-header-add').addEventListener('click', () => openTaskModal());
+  document.getElementById('empty-add-btn').addEventListener('click', () => openTaskModal());
+
+  // Modal Cancel & Close
+  document.getElementById('modal-close-btn').addEventListener('click', closeTaskModal);
+  document.getElementById('modal-cancel-btn').addEventListener('click', closeTaskModal);
+  document.getElementById('task-form').addEventListener('submit', handleSaveTask);
+  document.getElementById('modal-save-btn').addEventListener('click', handleSaveTask);
+
+  // Backup Modal
+  const backupModal = document.getElementById('backup-modal');
+  document.getElementById('btn-backup').addEventListener('click', () => {
+    playClickSound();
+    backupModal.classList.remove('hidden');
+  });
+  document.getElementById('backup-close-btn').addEventListener('click', () => {
+    playClickSound();
+    backupModal.classList.add('hidden');
+  });
+  document.getElementById('btn-export-json').addEventListener('click', exportBackupJSON);
+
+  const importInput = document.getElementById('import-file-input');
+  document.getElementById('btn-import-json').addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', importBackupJSON);
+
+  // Task Cards Event Delegation (Complete, Pin, Edit, Delete, Test Ring)
+  const taskContainer = document.getElementById('task-list-container');
+  if (taskContainer) {
+    taskContainer.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (!id) return;
+
+      if (action === 'complete') {
+        const updated = await state.toggleComplete(id);
+        if (updated && updated.completed === 1) playSuccessChime();
+        else playClickSound();
+        renderApp();
+      } else if (action === 'pin') {
+        playClickSound();
+        const task = state.tasks.find(t => t.id === id);
+        if (task) {
+          await state.updateTask(id, { pinned: !task.pinned });
+          renderApp();
+        }
+      } else if (action === 'edit') {
+        openTaskModal(id);
+      } else if (action === 'delete') {
+        playClickSound();
+        const taskToDelete = state.tasks.find(t => t.id === id);
+        await state.deleteTask(id);
+        renderApp();
+        showToast(`🗑️ "${taskToDelete ? taskToDelete.title : 'Reminder'}" Deleted`, 'danger', 4000);
+      } else if (action === 'test-alarm') {
+        const taskToTest = state.tasks.find(t => t.id === id);
+        if (taskToTest) {
+          AlarmEngine.startRinging(taskToTest);
+        }
+      }
+    });
+  }
+
+  // Alarm Modal Controls
+  document.getElementById('btn-snooze-alarm').addEventListener('click', () => {
+    AlarmEngine.snooze(5);
+  });
+  document.getElementById('btn-stop-alarm').addEventListener('click', () => {
+    AlarmEngine.stopAndComplete();
+  });
+
+  // Setup Dev Test Mode
+  setupDevTestMode();
+
+  // PWA Install Button
+  document.getElementById('btn-pwa-install').addEventListener('click', handlePwaInstall);
+});
+
+
+// ==========================================================================
+// 9. UTILITY HELPERS & CUSTOM DROPDOWNS/PICKERS
+// ==========================================================================
+
+function showToast(message, type = 'info', duration = 4000, action = null) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `neu-toast toast-${type}`;
+
+  let actionHtml = '';
+  if (action) {
+    actionHtml = `<button type="button" class="neu-btn neu-btn-primary neu-toast-action" id="toast-action-btn">${escapeHtml(action.label)}</button>`;
+  }
+
+  toast.innerHTML = `
+    <div class="neu-toast-content">
+      <span class="neu-toast-title">${escapeHtml(message)}</span>
+    </div>
+    ${actionHtml}
+    <button type="button" class="neu-toast-close">&times;</button>
+  `;
+
+  if (action && action.onClick) {
+    const actionBtn = toast.querySelector('#toast-action-btn');
+    if (actionBtn) {
+      actionBtn.addEventListener('click', () => {
+        action.onClick();
+        toast.remove();
+      });
+    }
+  }
+
+  toast.querySelector('.neu-toast-close').addEventListener('click', () => {
+    toast.remove();
+  });
+
+  container.appendChild(toast);
+
+  if (duration > 0) {
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 300);
+      }
+    }, duration);
+  }
+}
+
+function setupCustomDropdown(containerId, hiddenInputId, onSelectCallback) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const trigger = container.querySelector('.neu-dropdown-trigger');
+  const menu = container.querySelector('.neu-dropdown-menu');
+  const selectedTextEl = container.querySelector('span[id$="-selected-text"]');
+  const hiddenInput = hiddenInputId ? document.getElementById(hiddenInputId) : null;
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    playClickSound();
+
+    document.querySelectorAll('.neu-custom-dropdown').forEach(d => {
+      if (d !== container) d.classList.remove('open');
+    });
+
+    container.classList.toggle('open');
+  });
+
+  menu.querySelectorAll('.neu-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playClickSound();
+
+      const val = item.dataset.value;
+      const text = item.textContent.trim();
+
+      menu.querySelectorAll('.neu-dropdown-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+
+      if (selectedTextEl) selectedTextEl.textContent = text;
+      if (hiddenInput) hiddenInput.value = val;
+
+      container.classList.remove('open');
+
+      if (onSelectCallback) {
+        onSelectCallback(val);
+      }
+    });
+  });
+}
+
+function setCustomDropdownValue(containerId, hiddenInputId, targetValue) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const menu = container.querySelector('.neu-dropdown-menu');
+  const selectedTextEl = container.querySelector('span[id$="-selected-text"]');
+  const hiddenInput = hiddenInputId ? document.getElementById(hiddenInputId) : null;
+
+  menu.querySelectorAll('.neu-dropdown-item').forEach(item => {
+    if (item.dataset.value === targetValue) {
+      item.classList.add('selected');
+      if (selectedTextEl) selectedTextEl.textContent = item.textContent.trim();
+      if (hiddenInput) hiddenInput.value = targetValue;
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+}
+
+let currentCalYear = new Date().getFullYear();
+let currentCalMonth = new Date().getMonth();
+
+function setupCustomDatePicker() {
+  const trigger = document.getElementById('datepicker-trigger');
+  const popover = document.getElementById('calendar-popover');
+  if (!trigger || !popover) return;
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    playClickSound();
+
+    const isHidden = popover.classList.contains('hidden');
+    closeAllPopovers();
+
+    if (isHidden) {
+      popover.classList.remove('hidden');
+      renderCalendarGrid();
+    }
+  });
+
+  popover.addEventListener('click', (e) => e.stopPropagation());
+
+  const prevBtn = document.getElementById('cal-prev-month');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playClickSound();
+      currentCalMonth--;
+      if (currentCalMonth < 0) {
+        currentCalMonth = 11;
+        currentCalYear--;
+      }
+      renderCalendarGrid();
+    });
+  }
+
+  const nextBtn = document.getElementById('cal-next-month');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playClickSound();
+      currentCalMonth++;
+      if (currentCalMonth > 11) {
+        currentCalMonth = 0;
+        currentCalYear++;
+      }
+      renderCalendarGrid();
+    });
+  }
+
+  const pToday = document.getElementById('preset-today');
+  if (pToday) {
+    pToday.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectDateValue(getFormattedDate(0));
+    });
+  }
+
+  const pTomorrow = document.getElementById('preset-tomorrow');
+  if (pTomorrow) {
+    pTomorrow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectDateValue(getFormattedDate(1));
+    });
+  }
+
+  const pNextWeek = document.getElementById('preset-nextweek');
+  if (pNextWeek) {
+    pNextWeek.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectDateValue(getFormattedDate(7));
+    });
+  }
+}
+
+function renderCalendarGrid() {
+  const grid = document.getElementById('cal-days-grid');
+  const title = document.getElementById('cal-month-year');
+  const hiddenInput = document.getElementById('task-due-date');
+  if (!grid || !title) return;
+
+  const selectedDateStr = hiddenInput ? hiddenInput.value : '';
+
+  const monthNames = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  title.textContent = `${monthNames[currentCalMonth]} ${currentCalYear}`;
+  grid.innerHTML = '';
+
+  const firstDay = new Date(currentCalYear, currentCalMonth, 1).getDay();
+  const daysInMonth = new Date(currentCalYear, currentCalMonth + 1, 0).getDate();
+  const daysInPrevMonth = new Date(currentCalYear, currentCalMonth, 0).getDate();
+
+  const todayStr = getFormattedDate(0);
+
+  for (let i = firstDay - 1; i >= 0; i--) {
+    const btn = document.createElement('div');
+    btn.className = 'cal-day-btn other-month';
+    btn.textContent = daysInPrevMonth - i;
+    grid.appendChild(btn);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cal-day-btn';
+    btn.textContent = day;
+
+    const monthStr = String(currentCalMonth + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const fullDateStr = `${currentCalYear}-${monthStr}-${dayStr}`;
+
+    if (fullDateStr === todayStr) {
+      btn.classList.add('today');
+    }
+
+    if (fullDateStr === selectedDateStr) {
+      btn.classList.add('selected');
+    }
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectDateValue(fullDateStr);
+    });
+
+    grid.appendChild(btn);
+  }
+}
+
+function selectDateValue(dateStr) {
+  playClickSound();
+  const hiddenInput = document.getElementById('task-due-date');
+  const displayText = document.getElementById('datepicker-display-text');
+
+  if (hiddenInput) hiddenInput.value = dateStr;
+
+  if (displayText) {
+    if (dateStr) {
+      const [y, m, d] = dateStr.split('-');
+      const todayStr = getFormattedDate(0);
+      const tomorrowStr = getFormattedDate(1);
+
+      if (dateStr === todayStr) {
+        displayText.textContent = `Today (${d}/${m}/${y})`;
+      } else if (dateStr === tomorrowStr) {
+        displayText.textContent = `Tomorrow (${d}/${m}/${y})`;
+      } else {
+        displayText.textContent = `${d}/${m}/${y}`;
+      }
+    } else {
+      displayText.textContent = 'Select Date';
+    }
+  }
+
+  const popover = document.getElementById('calendar-popover');
+  if (popover) popover.classList.add('hidden');
+}
+
+function setupCustomTimePicker() {
+  const trigger = document.getElementById('timepicker-trigger');
+  const popover = document.getElementById('time-popover');
+  if (!trigger || !popover) return;
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    playClickSound();
+
+    const isHidden = popover.classList.contains('hidden');
+    closeAllPopovers();
+
+    if (isHidden) {
+      popover.classList.remove('hidden');
+    }
+  });
+
+  popover.addEventListener('click', (e) => e.stopPropagation());
+
+  popover.querySelectorAll('.time-preset-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectTimeValue(btn.dataset.time);
+    });
+  });
+
+  const applyBtn = document.getElementById('time-apply-btn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const hInput = document.getElementById('custom-hour');
+      const mInput = document.getElementById('custom-min');
+      const h = String(hInput ? hInput.value || 18 : 18).padStart(2, '0');
+      const m = String(mInput ? mInput.value || 0 : 0).padStart(2, '0');
+      selectTimeValue(`${h}:${m}`);
+    });
+  }
+}
+
+function selectTimeValue(timeStr) {
+  playClickSound();
+  const hiddenInput = document.getElementById('task-due-time');
+  const displayText = document.getElementById('timepicker-display-text');
+
+  if (hiddenInput) hiddenInput.value = timeStr;
+  if (displayText) displayText.textContent = timeStr;
+
+  if (timeStr && timeStr.includes(':')) {
+    const [h, m] = timeStr.split(':');
+    const hInput = document.getElementById('custom-hour');
+    const mInput = document.getElementById('custom-min');
+    if (hInput) hInput.value = parseInt(h);
+    if (mInput) mInput.value = parseInt(m);
+  }
+
+  const popover = document.getElementById('time-popover');
+  if (popover) popover.classList.add('hidden');
+}
+
+function closeAllPopovers() {
+  const calPopover = document.getElementById('calendar-popover');
+  const timePopover = document.getElementById('time-popover');
+  if (calPopover) calPopover.classList.add('hidden');
+  if (timePopover) timePopover.classList.add('hidden');
+  document.querySelectorAll('.neu-custom-dropdown').forEach(d => d.classList.remove('open'));
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function capitalize(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}

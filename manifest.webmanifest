@@ -1,0 +1,17 @@
+{
+  "name": "NeumoRemind Desktop Reminder",
+  "short_name": "NeumoRemind",
+  "description": "Desktop Neumorphic Reminder & To-Do List Application with Dark Mode and Audio Alarms",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#e6ecf5",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "assets/icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
