@@ -1309,6 +1309,30 @@ html[data-theme="dark"] .moon-icon {
   margin-top: 10px;
 }
 
+.form-error-inline {
+  font-size: 0.8rem;
+  color: var(--danger-color);
+  font-weight: 600;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.3;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.input-error {
+  border: 2px solid var(--danger-color) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
+  animation: neuErrorShake 0.35s ease-in-out;
+}
+
+@keyframes neuErrorShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
 /* Backup Modal Content */
 .backup-content {
   display: flex;

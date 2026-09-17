@@ -8,9 +8,14 @@
 const getApiBase = () => {
   const custom = localStorage.getItem('neumoremind_api_base');
   if (custom) return custom.replace(/\/$/, '');
-  if (window.location.port === '3001') return '/api';
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:3001/api';
+  if (typeof window !== 'undefined') {
+    if (window.location.port === '3001') return '/api';
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3001/api';
+    }
+    if (window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:') {
+      return ''; // Static hosting - operates local-first on IndexedDB
+    }
   }
   return '/api';
 };
@@ -411,6 +416,10 @@ class AppState {
     }
 
     // 2. Fetch from backend REST API if available and merge
+    const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : (typeof window !== 'undefined' ? window.API_BASE : '')) || '';
+    if (!activeApi) {
+      return false;
+    }
     try {
       const queryParams = new URLSearchParams({
         filter: this.currentFilter,
@@ -420,7 +429,7 @@ class AppState {
         sort: this.currentSort
       });
 
-      const res = await fetch(`${API_BASE}/reminders?${queryParams}`);
+      const res = await fetch(`${activeApi}/reminders?${queryParams}`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.reminders) {
@@ -543,14 +552,17 @@ class AppState {
     // Schedule notification timer
     clientScheduler.schedule(newTask);
 
-    // Sync to backend REST API
-    try {
-      fetch(`${API_BASE}/reminders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTask)
-      }).catch(() => {});
-    } catch (e) {}
+    // Sync to backend REST API if configured
+    const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : (typeof window !== 'undefined' ? window.API_BASE : '')) || '';
+    if (activeApi) {
+      try {
+        fetch(`${activeApi}/reminders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newTask)
+        }).catch(() => {});
+      } catch (e) {}
+    }
 
     if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
     return newTask;
@@ -588,14 +600,17 @@ class AppState {
     // Reschedule notification timer
     clientScheduler.reschedule(updatedTask);
 
-    // Sync to backend REST API
-    try {
-      fetch(`${API_BASE}/reminders/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedTask)
-      }).catch(() => {});
-    } catch (e) {}
+    // Sync to backend REST API if configured
+    const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : (typeof window !== 'undefined' ? window.API_BASE : '')) || '';
+    if (activeApi) {
+      try {
+        fetch(`${activeApi}/reminders/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedTask)
+        }).catch(() => {});
+      } catch (e) {}
+    }
 
     if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
     return updatedTask;
@@ -612,10 +627,13 @@ class AppState {
     this.rawTasks = this.rawTasks.filter(t => t.id !== id);
     this.recalculateFilteredTasksAndMetrics();
 
-    // Sync to backend REST API
-    try {
-      fetch(`${API_BASE}/reminders/${id}`, { method: 'DELETE' }).catch(() => {});
-    } catch (e) {}
+    // Sync to backend REST API if configured
+    const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : (typeof window !== 'undefined' ? window.API_BASE : '')) || '';
+    if (activeApi) {
+      try {
+        fetch(`${activeApi}/reminders/${id}`, { method: 'DELETE' }).catch(() => {});
+      } catch (e) {}
+    }
 
     if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
     return true;
@@ -813,10 +831,16 @@ async function subscribeUserToPush() {
     return false;
   }
 
+  const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : (typeof window !== 'undefined' ? window.API_BASE : '')) || '';
+  if (!activeApi) {
+    console.log('Static hosting mode: Backend Push is disabled until an API URL is configured. Local notifications are active.');
+    return false;
+  }
+
   try {
     const swReg = await navigator.serviceWorker.ready;
 
-    const keyRes = await fetch(`${API_BASE}/vapid-public-key`);
+    const keyRes = await fetch(`${activeApi}/vapid-public-key`);
     const { publicKey } = await keyRes.json();
 
     if (!publicKey) {
@@ -834,7 +858,7 @@ async function subscribeUserToPush() {
       });
     }
 
-    await fetch(`${API_BASE}/push-subscriptions`, {
+    await fetch(`${activeApi}/push-subscriptions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription.toJSON())
@@ -1206,13 +1230,58 @@ function setCategory(category) {
 // 6. TASK MODAL & FORM HANDLERS
 // ==========================================================================
 
+function getDefaultDueTime() {
+  const d = new Date(Date.now() + 15 * 60000); // 15 minutes ahead
+  const rem = d.getMinutes() % 5;
+  if (rem !== 0) {
+    d.setMinutes(d.getMinutes() + (5 - rem));
+  }
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function showFieldError(controlId, errorElId, message) {
+  const control = document.getElementById(controlId);
+  const errEl = document.getElementById(errorElId);
+  if (control) {
+    control.classList.add('input-error');
+    if (typeof control.focus === 'function') {
+      try { control.focus(); } catch (e) {}
+    }
+  }
+  if (errEl) {
+    errEl.textContent = message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function clearModalValidationErrors() {
+  ['task-title', 'datepicker-trigger', 'timepicker-trigger'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove('input-error');
+      el.style.border = '';
+    }
+  });
+  ['title-error-msg', 'date-error-msg', 'time-error-msg'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+  });
+}
+
 function openTaskModal(taskId = null) {
   playClickSound();
   const modal = document.getElementById('task-modal');
   const form = document.getElementById('task-form');
   const modalTitle = document.getElementById('modal-title');
+  if (!modal) return;
 
-  form.reset();
+  if (form) form.reset();
+  clearModalValidationErrors();
 
   const titleInput = document.getElementById('task-title');
   const notesInput = document.getElementById('task-notes');
@@ -1220,6 +1289,7 @@ function openTaskModal(taskId = null) {
   const locationInput = document.getElementById('task-location');
   const notifToggle = document.getElementById('task-notif-enabled');
   const soundToggle = document.getElementById('task-sound-enabled');
+  const pinnedInput = document.getElementById('task-pinned');
 
   if (titleInput) {
     titleInput.value = '';
@@ -1232,8 +1302,9 @@ function openTaskModal(taskId = null) {
   if (taskId) {
     const task = state.rawTasks.find(t => t.id === taskId) || state.tasks.find(t => t.id === taskId);
     if (task) {
-      modalTitle.textContent = 'Edit Reminder';
-      document.getElementById('task-id').value = task.id;
+      if (modalTitle) modalTitle.textContent = 'Edit Reminder';
+      const idInput = document.getElementById('task-id');
+      if (idInput) idInput.value = task.id;
       if (titleInput) titleInput.value = task.title;
       if (notesInput) notesInput.value = task.notes || task.description || '';
       if (tagInput) tagInput.value = task.tag || '';
@@ -1242,43 +1313,55 @@ function openTaskModal(taskId = null) {
       if (soundToggle) soundToggle.checked = task.sound_enabled !== 0;
 
       selectDateValue(task.date || getFormattedDate(0));
-      selectTimeValue(task.time || '18:00');
+      selectTimeValue(task.time || getDefaultDueTime());
       setCustomDropdownValue('priority-custom-dropdown', 'task-priority', task.priority || 'Medium');
       setCustomDropdownValue('category-custom-dropdown', 'task-category', task.category || 'Personal');
       setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', task.recurrence_type || task.recurrence || 'once');
-      document.getElementById('task-pinned').checked = !!task.pinned;
+      if (pinnedInput) pinnedInput.checked = !!task.pinned;
     }
   } else {
-    modalTitle.textContent = 'New Reminder';
-    document.getElementById('task-id').value = '';
+    if (modalTitle) modalTitle.textContent = 'New Reminder';
+    const idInput = document.getElementById('task-id');
+    if (idInput) idInput.value = '';
     selectDateValue(getFormattedDate(0));
-    selectTimeValue('18:00');
+    selectTimeValue(getDefaultDueTime());
     setCustomDropdownValue('priority-custom-dropdown', 'task-priority', 'Medium');
     setCustomDropdownValue('category-custom-dropdown', 'task-category', 'Personal');
     setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', 'once');
     if (notifToggle) notifToggle.checked = true;
     if (soundToggle) soundToggle.checked = true;
+    if (pinnedInput) pinnedInput.checked = false;
   }
 
   modal.classList.remove('hidden');
-  if (titleInput) titleInput.focus();
+  if (titleInput) {
+    setTimeout(() => {
+      try { titleInput.focus(); } catch (e) {}
+    }, 50);
+  }
 }
 
 function closeTaskModal() {
   playClickSound();
-  document.getElementById('task-modal').classList.add('hidden');
+  clearModalValidationErrors();
+  const modal = document.getElementById('task-modal');
+  if (modal) modal.classList.add('hidden');
 }
 
 let isSubmittingTaskForm = false;
 
 async function handleSaveTask(e) {
   if (e) {
-    e.preventDefault();
-    e.stopPropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (err) {}
   }
 
-  // Prevent duplicate submissions / rapid clicks
+  // Prevent duplicate submissions / rapid double clicks
   if (isSubmittingTaskForm) return;
+
+  clearModalValidationErrors();
 
   const idInput = document.getElementById('task-id');
   const titleInput = document.getElementById('task-title');
@@ -1298,18 +1381,15 @@ async function handleSaveTask(e) {
   // 1. Title Validation
   const title = (titleInput ? titleInput.value : '').trim();
   if (!title) {
-    if (titleInput) {
-      titleInput.style.border = '2px solid var(--danger-color)';
-      titleInput.focus();
-    }
+    showFieldError('task-title', 'title-error-msg', '⚠️ Reminder title is required!');
     showToast('⚠️ Reminder title is required!', 'warning');
     return;
   }
-  if (titleInput) titleInput.style.border = '';
 
   // 2. Date Validation
   const selectedDateStr = (dueDateInput ? dueDateInput.value : '').trim();
   if (!selectedDateStr || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDateStr) || isNaN(new Date(selectedDateStr).getTime())) {
+    showFieldError('datepicker-trigger', 'date-error-msg', '⚠️ Valid due date (YYYY-MM-DD) is required!');
     showToast('⚠️ Valid due date (YYYY-MM-DD) is required!', 'warning');
     return;
   }
@@ -1317,11 +1397,13 @@ async function handleSaveTask(e) {
   // 3. Time Validation
   const rawTimeStr = (dueTimeInput ? dueTimeInput.value : '').trim();
   if (!rawTimeStr || !/^\d{1,2}:\d{2}$/.test(rawTimeStr)) {
+    showFieldError('timepicker-trigger', 'time-error-msg', '⚠️ Valid due time (HH:MM) is required!');
     showToast('⚠️ Valid due time (HH:MM) is required!', 'warning');
     return;
   }
   const [h, m] = rawTimeStr.split(':').map(Number);
   if (h < 0 || h > 23 || m < 0 || m > 59) {
+    showFieldError('timepicker-trigger', 'time-error-msg', '⚠️ Valid due time (00:00 - 23:59) is required!');
     showToast('⚠️ Valid due time (00:00 - 23:59) is required!', 'warning');
     return;
   }
@@ -1331,10 +1413,23 @@ async function handleSaveTask(e) {
   const now = new Date();
   const id = idInput ? idInput.value : '';
 
-  // 4. Accidental past-date validation check for NEW reminders (allow 60s grace)
-  if (!id && selectedDateTime.getTime() < now.getTime() - 60000) {
-    showToast('⚠️ Cannot schedule a reminder in the past! Pick a future date & time.', 'warning');
-    return;
+  // 4. Accidental past-date validation check for NEW reminders:
+  if (!id) {
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const selMidnight = new Date(selectedDateTime.getFullYear(), selectedDateTime.getMonth(), selectedDateTime.getDate()).getTime();
+
+    if (selMidnight < todayMidnight) {
+      showFieldError('datepicker-trigger', 'date-error-msg', '⚠️ Cannot schedule a reminder for a past date!');
+      showToast('⚠️ Cannot schedule a reminder for a past date!', 'warning');
+      return;
+    }
+
+    // 5-minute grace window for reminders set today so typing in title/notes doesn't cause rejection
+    if (selMidnight === todayMidnight && selectedDateTime.getTime() < now.getTime() - 300000) {
+      showFieldError('timepicker-trigger', 'time-error-msg', '⚠️ Time is in the past! Please pick a future time.');
+      showToast('⚠️ Time is in the past! Please pick a future time.', 'warning');
+      return;
+    }
   }
 
   const payload = {
@@ -1367,14 +1462,14 @@ async function handleSaveTask(e) {
       showToast('✅ Reminder Updated Successfully!', 'success');
     } else {
       await state.addTask(payload);
-      showToast('✨ New Reminder Saved to DB!', 'success');
+      showToast('✨ New Reminder Saved Successfully!', 'success');
     }
     playClickSound();
     closeTaskModal();
-    renderApp();
+    await renderApp();
   } catch (err) {
     console.error('Save task error:', err);
-    showToast('❌ Error saving task to database', 'danger');
+    showToast('❌ Error saving reminder. Please try again.', 'danger');
   } finally {
     isSubmittingTaskForm = false;
     if (saveBtn) {
@@ -1601,7 +1696,7 @@ function startReminderScheduler() {
   }, 30000);
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function initApp() {
   try { initTheme(); } catch (e) {}
   try { updateOnlineStatus(); } catch (e) {}
 
@@ -1731,10 +1826,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   addSafeListener('btn-header-add', 'click', () => openTaskModal());
   addSafeListener('empty-add-btn', 'click', () => openTaskModal());
 
-  // Modal Cancel & Close
+  // Modal Actions & Submissions (direct click + form submit)
   addSafeListener('modal-close-btn', 'click', closeTaskModal);
   addSafeListener('modal-cancel-btn', 'click', closeTaskModal);
+  addSafeListener('modal-save-btn', 'click', handleSaveTask);
   addSafeListener('task-form', 'submit', handleSaveTask);
+
+  const titleInputEl = document.getElementById('task-title');
+  if (titleInputEl) {
+    titleInputEl.addEventListener('input', () => {
+      titleInputEl.classList.remove('input-error');
+      titleInputEl.style.border = '';
+      const err = document.getElementById('title-error-msg');
+      if (err) {
+        err.textContent = '';
+        err.classList.add('hidden');
+      }
+    });
+  }
 
   // Backup Modal
   const backupModal = document.getElementById('backup-modal');
@@ -1783,29 +1892,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         await state.deleteTask(id);
         renderApp();
         showToast(`🗑️ "${taskToDelete ? taskToDelete.title : 'Reminder'}" Deleted`, 'danger', 4000);
-      } else if (action === 'test-alarm') {
-        const taskToTest = state.tasks.find(t => t.id === id);
-        if (taskToTest) {
-          AlarmEngine.startRinging(taskToTest);
+      } else if (action === 'test-alarm' || action === 'test-ring') {
+        playClickSound();
+        const task = state.tasks.find(t => t.id === id);
+        if (task && typeof AlarmEngine !== 'undefined') {
+          if (typeof AlarmEngine.startRinging === 'function') {
+            AlarmEngine.startRinging(task);
+          } else if (typeof AlarmEngine.ring === 'function') {
+            AlarmEngine.ring(task);
+          }
         }
       }
     });
   }
 
   // Alarm Modal Controls
-  document.getElementById('btn-snooze-alarm').addEventListener('click', () => {
+  addSafeListener('btn-snooze-alarm', 'click', () => {
     AlarmEngine.snooze(5);
   });
-  document.getElementById('btn-stop-alarm').addEventListener('click', () => {
+  addSafeListener('btn-stop-alarm', 'click', () => {
     AlarmEngine.stopAndComplete();
   });
 
   // Setup Dev Test Mode
-  setupDevTestMode();
+  try { setupDevTestMode(); } catch (e) {}
 
   // PWA Install Button
-  document.getElementById('btn-pwa-install').addEventListener('click', handlePwaInstall);
-});
+  addSafeListener('btn-pwa-install', 'click', handlePwaInstall);
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+  } else {
+    initApp();
+  }
+}
 
 
 // ==========================================================================
@@ -2077,6 +2199,11 @@ function selectDateValue(dateStr) {
     }
   }
 
+  const dateErr = document.getElementById('date-error-msg');
+  if (dateErr) { dateErr.textContent = ''; dateErr.classList.add('hidden'); }
+  const dateTrigger = document.getElementById('datepicker-trigger');
+  if (dateTrigger) { dateTrigger.classList.remove('input-error'); dateTrigger.style.border = ''; }
+
   const popover = document.getElementById('calendar-popover');
   if (popover) popover.classList.add('hidden');
 }
@@ -2135,6 +2262,11 @@ function selectTimeValue(timeStr) {
     if (hInput) hInput.value = parseInt(h);
     if (mInput) mInput.value = parseInt(m);
   }
+
+  const timeErr = document.getElementById('time-error-msg');
+  if (timeErr) { timeErr.textContent = ''; timeErr.classList.add('hidden'); }
+  const timeTrigger = document.getElementById('timepicker-trigger');
+  if (timeTrigger) { timeTrigger.classList.remove('input-error'); timeTrigger.style.border = ''; }
 
   const popover = document.getElementById('time-popover');
   if (popover) popover.classList.add('hidden');

@@ -270,10 +270,10 @@
     <div class="neu-card modal-card" role="dialog" aria-labelledby="modal-title">
       <div class="modal-header">
         <h3 id="modal-title">New Reminder</h3>
-        <button class="neu-icon-btn modal-close-btn" id="modal-close-btn" aria-label="Close modal">&times;</button>
+        <button class="neu-icon-btn modal-close-btn" id="modal-close-btn" onclick="closeTaskModal()" aria-label="Close modal">&times;</button>
       </div>
       
-      <form id="task-form" class="task-form">
+      <form id="task-form" class="task-form" novalidate onsubmit="handleSaveTask(event); return false;">
         <input type="hidden" id="task-id">
 
         <!-- Title -->
@@ -282,6 +282,7 @@
           <div class="neu-input-wrapper">
             <input type="text" id="task-title" required placeholder="What do you need to remember?" class="neu-input">
           </div>
+          <div id="title-error-msg" class="form-error-inline hidden"></div>
         </div>
 
         <!-- Description / Notes -->
@@ -295,7 +296,7 @@
         <!-- Row: Due Date & Time -->
         <div class="form-row">
           <div class="form-group col-half">
-            <label>Due Date</label>
+            <label>Due Date <span class="required">*</span></label>
             <div class="neu-custom-datepicker" id="custom-datepicker">
               <button type="button" class="neu-datepicker-trigger" id="datepicker-trigger">
                 <span id="datepicker-display-text">Select Date</span>
@@ -327,10 +328,11 @@
 
               <input type="hidden" id="task-due-date" value="">
             </div>
+            <div id="date-error-msg" class="form-error-inline hidden"></div>
           </div>
 
           <div class="form-group col-half">
-            <label>Due Time</label>
+            <label>Due Time <span class="required">*</span></label>
             <div class="neu-custom-timepicker" id="custom-timepicker">
               <button type="button" class="neu-timepicker-trigger" id="timepicker-trigger">
                 <span id="timepicker-display-text">18:00</span>
@@ -353,14 +355,14 @@
                   <div class="time-input-col">
                     <label>Hour</label>
                     <div class="neu-input-wrapper time-num-wrapper">
-                      <input type="number" id="custom-hour" min="0" max="23" value="18" class="neu-input time-num-input">
+                      <input type="number" id="custom-hour" min="0" max="23" step="1" value="18" class="neu-input time-num-input">
                     </div>
                   </div>
                   <span class="time-sep">:</span>
                   <div class="time-input-col">
                     <label>Minute</label>
                     <div class="neu-input-wrapper time-num-wrapper">
-                      <input type="number" id="custom-min" min="0" max="59" step="5" value="00" class="neu-input time-num-input">
+                      <input type="number" id="custom-min" min="0" max="59" step="1" value="00" class="neu-input time-num-input">
                     </div>
                   </div>
                 </div>
@@ -370,6 +372,7 @@
 
               <input type="hidden" id="task-due-time" value="18:00">
             </div>
+            <div id="time-error-msg" class="form-error-inline hidden"></div>
           </div>
         </div>
 
@@ -470,8 +473,8 @@
 
         <!-- Modal Actions -->
         <div class="modal-footer">
-          <button type="button" class="neu-btn neu-btn-secondary" id="modal-cancel-btn">Cancel</button>
-          <button type="submit" class="neu-btn neu-btn-primary" id="modal-save-btn">Save Reminder</button>
+          <button type="button" class="neu-btn neu-btn-secondary" id="modal-cancel-btn" onclick="closeTaskModal()">Cancel</button>
+          <button type="button" class="neu-btn neu-btn-primary" id="modal-save-btn" onclick="handleSaveTask(event)">Save Reminder</button>
         </div>
       </form>
     </div>
