@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neumoremind-v9-alarm-ring';
+const CACHE_NAME = 'neumoremind-v10-auto-prompt';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

@@ -1765,6 +1765,22 @@ async function initApp() {
   try { startReminderScheduler(); } catch (e) {}
   try { updateNotificationBtnState(); } catch (e) {}
 
+  // Auto-request notification permission on first interaction if still default
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+    setTimeout(() => {
+      if (typeof showToast === 'function') {
+        showToast('🔔 Enable Notifications to receive alerts when the app is closed!', 'info', 6000);
+      }
+    }, 1500);
+
+    const promptOnInteraction = () => {
+      if (Notification.permission === 'default') {
+        requestNotificationPermission();
+      }
+    };
+    window.addEventListener('click', promptOnInteraction, { once: true });
+  }
+
   // Register Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
