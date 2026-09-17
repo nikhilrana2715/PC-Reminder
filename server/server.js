@@ -107,9 +107,11 @@ app.post('/api/reminders/:id/snooze', (req, res) => {
   }
 });
 
+const DEFAULT_VAPID_PUBLIC = 'BNIa0rkFpaTe4n5gd4vCngiupsKdbNUuXW4e0y8V_QPKaPSmMa7a2hkSsgRnrYWPAX30WpaSJVUsKrjwieaEWF8';
+
 // 8. Get VAPID Public Key
 app.get('/api/vapid-public-key', (req, res) => {
-  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || '' });
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC });
 });
 
 // 9. Save Push Subscription

@@ -3,16 +3,20 @@ const webPush = require('web-push');
 const db = require('./db');
 require('dotenv').config();
 
-// Configure Web Push VAPID keys
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-  webPush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@neumoremind.app',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
+// Configure Web Push VAPID keys with resilient fallback
+const DEFAULT_VAPID_PUBLIC = 'BNIa0rkFpaTe4n5gd4vCngiupsKdbNUuXW4e0y8V_QPKaPSmMa7a2hkSsgRnrYWPAX30WpaSJVUsKrjwieaEWF8';
+const DEFAULT_VAPID_PRIVATE = 'lUKEYye3QXpXiRm_RFYlMq3MPoWrcpW1Mq4Cqv_08tg';
+const DEFAULT_VAPID_SUBJECT = 'mailto:admin@neumoremind.app';
+
+const vapidPublic = process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC;
+const vapidPrivate = process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE;
+const vapidSubject = process.env.VAPID_SUBJECT || DEFAULT_VAPID_SUBJECT;
+
+try {
+  webPush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
   console.log('Web Push VAPID keys configured on scheduler!');
-} else {
-  console.warn('VAPID keys not configured in process.env. Web Push will be disabled.');
+} catch (err) {
+  console.warn('VAPID setup warning:', err.message);
 }
 
 function initScheduler() {
