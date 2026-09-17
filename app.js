@@ -624,25 +624,49 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 function requestNotificationPermission() {
-  if ('Notification' in window) {
-    Notification.requestPermission().then(permission => {
-      updateNotificationBtnState(permission);
-      if (permission === 'granted') {
-        subscribeUserToPush();
-        showToast('🔔 Web Push Notifications Enabled!', 'success');
-      }
-    });
+  if (!('Notification' in window)) {
+    showToast('⚠️ Desktop notifications are not supported by this browser.', 'warning');
+    return;
   }
+
+  if (Notification.permission === 'denied') {
+    showToast('🚫 Notifications are blocked in your browser! Click the lock/tune icon in your address bar to re-enable.', 'danger', 6000);
+    updateNotificationBtnState('denied');
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    subscribeUserToPush();
+    showToast('🔔 Web Push Notifications are active!', 'info');
+    updateNotificationBtnState('granted');
+    return;
+  }
+
+  Notification.requestPermission().then(permission => {
+    updateNotificationBtnState(permission);
+    if (permission === 'granted') {
+      subscribeUserToPush();
+      showToast('🔔 Web Push Notifications Enabled!', 'success');
+    } else if (permission === 'denied') {
+      showToast('🚫 Notifications blocked by user. Re-enable anytime in browser site settings.', 'warning', 5000);
+    }
+  });
 }
 
-function updateNotificationBtnState(permission = Notification.permission) {
+function updateNotificationBtnState(permission = (('Notification' in window) ? Notification.permission : 'default')) {
   const btn = document.getElementById('btn-toggle-notif');
   if (!btn) return;
   if (permission === 'granted') {
     btn.classList.add('active');
+    btn.classList.remove('denied');
     btn.title = 'Web Push Notifications Active';
+  } else if (permission === 'denied') {
+    btn.classList.remove('active');
+    btn.classList.add('denied');
+    btn.title = 'Notifications Blocked in Browser Settings';
   } else {
     btn.classList.remove('active');
+    btn.classList.remove('denied');
     btn.title = 'Click to Enable Web Push Notifications';
   }
 }
