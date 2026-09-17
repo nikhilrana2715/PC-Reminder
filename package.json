@@ -2,15 +2,27 @@
   "name": "neumoremind",
   "version": "2.0.0",
   "description": "NeumoRemind — Production-Ready Neumorphic Desktop Reminder & To-Do PWA",
-  "main": "server/server.js",
+  "main": "electron-main.js",
   "scripts": {
-    "start": "node server/server.js",
+    "start": "electron .",
+    "desktop": "electron .",
     "server": "node server/server.js",
     "dev": "node server/server.js",
     "test": "node tests/gate1_tests.js && node tests/gate1_backend_tests.js && node tests/gate2_tests.js && node tests/gate3_tests.js && node tests/gate4_stress_tests.js",
-    "security-scan": "node scripts/security_scan.js"
+    "security-scan": "node scripts/security_scan.js",
+    "dist:win": "electron-packager . NeumoRemind --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icons/icon.ico --ignore=dist --ignore=tests --ignore=scratch --ignore=server/node_modules"
   },
-  "keywords": ["pwa", "reminder", "neumorphism", "web-push", "scheduler"],
+  "keywords": [
+    "pwa",
+    "reminder",
+    "neumorphism",
+    "web-push",
+    "scheduler"
+  ],
   "author": "NeumoRemind Team",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.4.1",
+    "electron-packager": "^17.1.2"
+  }
 }

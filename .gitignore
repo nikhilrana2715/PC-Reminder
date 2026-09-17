@@ -5,3 +5,4 @@ server/.env
 scratch/
 .system_generated/
 *.log
+dist/

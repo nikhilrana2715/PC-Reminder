@@ -360,6 +360,17 @@ class ClientReminderScheduler {
       AlarmEngine.startRinging(task);
     }
 
+    // Native Electron Desktop Notification & Focus
+    if (typeof window !== 'undefined' && window.electronAPI) {
+      try {
+        window.electronAPI.showNotification({
+          title: `⏰ ${task.title}`,
+          body: task.description || task.notes || `Scheduled for ${task.time}`
+        });
+        window.electronAPI.focusWindow();
+      } catch (e) {}
+    }
+
     // Show Native Desktop Notification
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
