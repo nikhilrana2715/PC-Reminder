@@ -1,12 +1,12 @@
 {
-  "name": "NeumoRemind Desktop & Mobile Reminder",
+  "name": "NeumoRemind",
   "short_name": "NeumoRemind",
   "description": "Production-Ready Neumorphic Personal Reminder & Task PWA Application",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#e6ecf5",
+  "background_color": "#e8edf5",
   "theme_color": "#6366f1",
   "categories": ["productivity", "utilities"],
   "icons": [

@@ -40,39 +40,43 @@
   --radius-full: 9999px;
 }
 
-/* Light Theme Tokens */
+/* Light Theme Tokens (Calm, Soft, Eye-Friendly Slate-Mist Palette) */
 html[data-theme="light"] {
-  --bg-main: #e6ecf5;
-  --bg-surface: #e6ecf5;
-  --text-main: #2d3748;
-  --text-muted: #718096;
-  --border-light: rgba(255, 255, 255, 0.6);
+  --bg-main: #e8edf5;
+  --bg-surface: #edf2f8;
+  --bg-input: #f8fafc;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --border-light: rgba(148, 163, 184, 0.35);
+  --border-subtle: rgba(203, 213, 225, 0.7);
 
-  /* Neumorphic Shadows - Light */
-  --shadow-dark: #b8c2d1;
+  /* Neumorphic Shadows - Soft, eye-pleasing, balanced contrast */
+  --shadow-dark: #cbd5e1;
   --shadow-light: #ffffff;
   
-  --neu-flat: 8px 8px 18px var(--shadow-dark), -8px -8px 18px var(--shadow-light);
-  --neu-flat-hover: 12px 12px 24px var(--shadow-dark), -12px -12px 24px var(--shadow-light);
-  --neu-pressed: inset 5px 5px 10px var(--shadow-dark), inset -5px -5px 10px var(--shadow-light);
-  --neu-pressed-deep: inset 7px 7px 14px var(--shadow-dark), inset -7px -7px 14px var(--shadow-light);
-  --neu-convex: linear-gradient(145deg, #f6fcff, #cfd4dd);
-  --neu-concave: linear-gradient(145deg, #cfd4dd, #f6fcff);
-  --neu-sm: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
-  --neu-badge: 3px 3px 6px var(--shadow-dark), -3px -3px 6px var(--shadow-light);
+  --neu-flat: 6px 6px 16px rgba(160, 174, 192, 0.35), -6px -6px 16px rgba(255, 255, 255, 0.9);
+  --neu-flat-hover: 10px 10px 22px rgba(160, 174, 192, 0.42), -10px -10px 22px rgba(255, 255, 255, 0.95);
+  --neu-pressed: inset 3px 3px 6px rgba(160, 174, 192, 0.28), inset -3px -3px 6px rgba(255, 255, 255, 0.9);
+  --neu-pressed-deep: inset 5px 5px 10px rgba(160, 174, 192, 0.35), inset -5px -5px 10px rgba(255, 255, 255, 0.9);
+  --neu-convex: linear-gradient(145deg, #f4f7fb, #e2e8f0);
+  --neu-concave: linear-gradient(145deg, #e2e8f0, #f4f7fb);
+  --neu-sm: 3px 3px 8px rgba(160, 174, 192, 0.3), -3px -3px 8px rgba(255, 255, 255, 0.9);
+  --neu-badge: 2px 2px 5px rgba(160, 174, 192, 0.25), -2px -2px 5px rgba(255, 255, 255, 0.9);
 }
 
 /* Dark Theme Tokens */
 html[data-theme="dark"] {
-  --bg-main: #191c24;
-  --bg-surface: #191c24;
-  --text-main: #e2e8f0;
+  --bg-main: #131722;
+  --bg-surface: #1a202c;
+  --bg-input: #151a24;
+  --text-main: #f1f5f9;
   --text-muted: #94a3b8;
-  --border-light: rgba(255, 255, 255, 0.05);
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
 
   /* Neumorphic Shadows - Dark */
-  --shadow-dark: #12141a;
-  --shadow-light: #20242e;
+  --shadow-dark: #0d111a;
+  --shadow-light: #232a3b;
   
   --neu-flat: 8px 8px 18px var(--shadow-dark), -8px -8px 18px var(--shadow-light);
   --neu-flat-hover: 12px 12px 24px var(--shadow-dark), -12px -12px 24px var(--shadow-light);
@@ -253,14 +257,19 @@ button:focus-visible,
 
 /* Neumorphic Input & Textarea */
 .neu-input-wrapper, .neu-textarea-wrapper, .neu-select-wrapper {
-  background-color: var(--bg-surface);
+  background-color: var(--bg-input, #f8fafc);
   box-shadow: var(--neu-pressed);
   border-radius: var(--radius-md);
   transition: var(--theme-transition);
   display: flex;
   align-items: center;
   padding: 0 16px;
-  border: 1px solid var(--border-light);
+  border: 1.5px solid var(--border-light);
+}
+
+.neu-input-wrapper:focus-within, .neu-textarea-wrapper:focus-within, .neu-select-wrapper:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: var(--neu-pressed-deep), 0 0 0 3px var(--primary-light);
 }
 
 .neu-input, .neu-textarea, .neu-select {
@@ -307,10 +316,10 @@ button:focus-visible,
 .neu-dropdown-trigger {
   width: 100%;
   height: 44px;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-input, #f8fafc);
   box-shadow: var(--neu-pressed);
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
+  border: 1.5px solid var(--border-light);
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -417,10 +426,10 @@ button:focus-visible,
 .neu-datepicker-trigger, .neu-timepicker-trigger {
   width: 100%;
   height: 44px;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-input, #f8fafc);
   box-shadow: var(--neu-pressed);
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
+  border: 1.5px solid var(--border-light);
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -434,6 +443,7 @@ button:focus-visible,
 
 .neu-datepicker-trigger:hover, .neu-timepicker-trigger:hover {
   border-color: var(--primary-color);
+  box-shadow: var(--neu-pressed-deep);
 }
 
 .picker-icon {
@@ -1233,53 +1243,72 @@ html[data-theme="dark"] .moon-icon {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
-  z-index: 100;
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 2500;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   animation: fadeIn 0.2s ease-out;
 }
 
 .modal-card {
   width: 100%;
-  max-width: 520px;
-  padding: 28px;
+  max-width: 530px;
+  max-height: min(90vh, 90dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 22px 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  box-shadow: var(--neu-flat-hover);
+  gap: 16px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.2), var(--neu-flat-hover);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  background-color: var(--bg-surface);
+  margin: auto;
 }
 
 .modal-header {
+  position: sticky;
+  top: -2px;
+  background-color: var(--bg-surface);
+  z-index: 15;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .modal-header h3 {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   color: var(--text-main);
+  font-family: var(--font-heading);
+  font-weight: 700;
 }
 
 .modal-close-btn {
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   width: 36px;
   height: 36px;
+  flex-shrink: 0;
 }
 
 .task-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .form-group label {
@@ -1294,7 +1323,7 @@ html[data-theme="dark"] .moon-icon {
 
 .form-row {
   display: flex;
-  gap: 16px;
+  gap: 14px;
 }
 
 .col-half {
@@ -1302,11 +1331,17 @@ html[data-theme="dark"] .moon-icon {
 }
 
 .modal-footer {
+  position: sticky;
+  bottom: -2px;
+  background-color: var(--bg-surface);
+  z-index: 15;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .form-error-inline {
@@ -1571,7 +1606,7 @@ html[data-theme="dark"] .moon-icon {
   position: fixed;
   bottom: 12px;
   left: 28px;
-  z-index: 1000;
+  z-index: 40;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1681,9 +1716,17 @@ html[data-theme="dark"] .moon-icon {
   .col-half {
     width: 100%;
   }
+  .modal-overlay {
+    padding: 8px;
+    align-items: flex-start;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
   .modal-card {
-    padding: 20px 16px;
-    max-width: 95vw;
+    padding: 18px 14px 24px 14px;
+    max-width: 100%;
+    max-height: calc(100dvh - 20px);
+    max-height: calc(100vh - 20px);
   }
 }
 
@@ -1745,8 +1788,10 @@ html[data-theme="dark"] .moon-icon {
     font-size: 0.72rem;
   }
   .modal-card {
-    padding: 16px 12px;
-    width: 96vw;
+    padding: 14px 12px 20px 12px;
+    width: 100%;
+    max-height: calc(100dvh - 12px);
+    max-height: calc(100vh - 12px);
   }
   .toggles-row {
     flex-direction: column;
