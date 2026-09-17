@@ -270,6 +270,7 @@
       <form id="task-form" class="task-form" novalidate onsubmit="handleSaveTask(event); return false;">
         <input type="hidden" id="task-id">
 
+        <div class="modal-body">
         <!-- Title -->
         <div class="form-group">
           <label for="task-title">Title <span class="required">*</span></label>
@@ -464,12 +465,13 @@
             <span>Pin to top of list</span>
           </label>
         </div>
+      </div>
 
-        <!-- Modal Actions -->
-        <div class="modal-footer">
-          <button type="button" class="neu-btn neu-btn-secondary" id="modal-cancel-btn" onclick="closeTaskModal()">Cancel</button>
-          <button type="button" class="neu-btn neu-btn-primary" id="modal-save-btn" onclick="handleSaveTask(event)">Save Reminder</button>
-        </div>
+      <!-- Modal Actions (Permanently docked at bottom) -->
+      <div class="modal-footer">
+        <button type="button" class="neu-btn neu-btn-secondary" id="modal-cancel-btn" onclick="closeTaskModal()">Cancel</button>
+        <button type="button" class="neu-btn neu-btn-primary" id="modal-save-btn" onclick="handleSaveTask(event)">Save Reminder</button>
+      </div>
       </form>
     </div>
   </div>
