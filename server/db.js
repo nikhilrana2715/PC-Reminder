@@ -143,6 +143,7 @@ class PersistentDB {
     const {
       filter = 'all',
       category = 'all',
+      priority = 'all',
       search = '',
       sort = 'dueDateAsc'
     } = params;
@@ -152,10 +153,14 @@ class PersistentDB {
     // 1. Calculate overall metrics from total DB records
     const allReminders = this.data.reminders;
     const totalCount = allReminders.length;
-    const completedCount = allReminders.filter(r => r.completed === 1).length;
-    const todayCount = allReminders.filter(r => r.date === todayStr).length;
-    const upcomingCount = allReminders.filter(r => r.date > todayStr && r.completed === 0).length;
-    const overdueCount = allReminders.filter(r => r.date && r.date < todayStr && r.completed === 0).length;
+    const completedCount = allReminders.filter(r => r.completed === 1 || r.completionStatus === 'completed').length;
+    const todayCount = allReminders.filter(r => r.date === todayStr && r.completed !== 1 && r.completionStatus !== 'completed').length;
+    const upcomingCount = allReminders.filter(r => r.date > todayStr && r.completed !== 1 && r.completionStatus !== 'completed').length;
+    const overdueCount = allReminders.filter(r => r.date && r.date < todayStr && r.completed !== 1 && r.completionStatus !== 'completed').length;
+    const highCriticalCount = allReminders.filter(r => {
+      const p = (r.priority || '').toLowerCase();
+      return (p === 'high' || p === 'critical') && r.completed !== 1 && r.completionStatus !== 'completed';
+    }).length;
 
     const categoryCounts = {
       Work: allReminders.filter(r => r.category === 'Work').length,
@@ -169,31 +174,39 @@ class PersistentDB {
 
     // 2. Filter records
     let filtered = allReminders.filter(r => {
+      const isCompleted = r.completed === 1 || r.completionStatus === 'completed';
+
       // Search
       if (search.trim()) {
         const q = search.toLowerCase();
         const mTitle = (r.title || '').toLowerCase().includes(q);
-        const mDesc = (r.description || '').toLowerCase().includes(q);
+        const mDesc = (r.description || r.notes || '').toLowerCase().includes(q);
         const mCat = (r.category || '').toLowerCase().includes(q);
         const mTag = (r.tag || '').toLowerCase().includes(q);
-        if (!mTitle && !mDesc && !mCat && !mTag) return false;
+        const mPrio = (r.priority || '').toLowerCase().includes(q);
+        if (!mTitle && !mDesc && !mCat && !mTag && !mPrio) return false;
       }
 
       // Category
-      if (category !== 'all' && r.category !== category) {
+      if (category !== 'all' && (r.category || '').toLowerCase() !== category.toLowerCase()) {
+        return false;
+      }
+
+      // Priority
+      if (priority !== 'all' && (r.priority || '').toLowerCase() !== priority.toLowerCase()) {
         return false;
       }
 
       // Filter View
       switch (filter) {
         case 'today':
-          return r.date === todayStr;
+          return r.date === todayStr && !isCompleted;
         case 'upcoming':
-          return r.date > todayStr && r.completed === 0;
+          return r.date > todayStr && !isCompleted;
         case 'overdue':
-          return r.date && r.date < todayStr && r.completed === 0;
+          return r.date && r.date < todayStr && !isCompleted;
         case 'completed':
-          return r.completed === 1;
+          return isCompleted;
         case 'all':
         default:
           return true;
@@ -206,23 +219,24 @@ class PersistentDB {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
 
+      const pMap = { critical: 4, high: 3, medium: 2, low: 1 };
+
       switch (sort) {
         case 'dueDateAsc':
-          return (a.scheduled_at || '').localeCompare(b.scheduled_at || '');
+          return (a.scheduled_at || (a.date + a.time) || '').localeCompare(b.scheduled_at || (b.date + b.time) || '');
         case 'dueDateDesc':
-          return (b.scheduled_at || '').localeCompare(a.scheduled_at || '');
+          return (b.scheduled_at || (b.date + b.time) || '').localeCompare(a.scheduled_at || (a.date + a.time) || '');
         case 'priorityHigh':
-          const pMap = { high: 3, medium: 2, low: 1 };
-          return (pMap[b.priority] || 0) - (pMap[a.priority] || 0);
+          return (pMap[(b.priority || '').toLowerCase()] || 0) - (pMap[(a.priority || '').toLowerCase()] || 0);
         case 'titleAsc':
           return (a.title || '').localeCompare(b.title || '');
         case 'titleDesc':
           return (b.title || '').localeCompare(a.title || '');
         case 'createdOldest':
-          return (a.created_at || 0) - (b.created_at || 0);
+          return (a.created_at || a.createdAt || 0) - (b.created_at || b.createdAt || 0);
         case 'createdDesc':
         default:
-          return (b.created_at || 0) - (a.created_at || 0);
+          return (b.created_at || b.createdAt || 0) - (a.created_at || a.createdAt || 0);
       }
     });
 
@@ -234,6 +248,7 @@ class PersistentDB {
         today: todayCount,
         upcoming: upcomingCount,
         overdue: overdueCount,
+        highCritical: highCriticalCount,
         categories: categoryCounts,
         progressPercent
       }

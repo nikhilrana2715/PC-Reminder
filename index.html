@@ -207,6 +207,21 @@
         </div>
 
         <div class="view-controls">
+          <!-- Custom Neumorphic Priority Filter Dropdown -->
+          <div class="neu-custom-dropdown" id="priority-filter-dropdown">
+            <button type="button" class="neu-dropdown-trigger" id="priority-filter-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span id="priority-filter-selected-text">Priority: All</span>
+              <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="neu-dropdown-menu" id="priority-filter-menu" role="listbox">
+              <div class="neu-dropdown-item selected" data-value="all">Priority: All</div>
+              <div class="neu-dropdown-item" data-value="Critical">🚨 Critical</div>
+              <div class="neu-dropdown-item" data-value="High">🔴 High</div>
+              <div class="neu-dropdown-item" data-value="Medium">🟡 Medium</div>
+              <div class="neu-dropdown-item" data-value="Low">🟢 Low</div>
+            </div>
+          </div>
+
           <!-- Custom Neumorphic Sort Dropdown -->
           <div class="neu-custom-dropdown" id="sort-custom-dropdown">
             <button type="button" class="neu-dropdown-trigger" id="sort-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
@@ -371,11 +386,12 @@
                 <svg class="neu-dropdown-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
               <div class="neu-dropdown-menu" id="priority-dropdown-menu">
-                <div class="neu-dropdown-item" data-value="low">🟢 Low Priority</div>
-                <div class="neu-dropdown-item selected" data-value="medium">🟡 Medium Priority</div>
-                <div class="neu-dropdown-item" data-value="high">🔴 High Priority</div>
+                <div class="neu-dropdown-item" data-value="Low">🟢 Low Priority</div>
+                <div class="neu-dropdown-item selected" data-value="Medium">🟡 Medium Priority</div>
+                <div class="neu-dropdown-item" data-value="High">🔴 High Priority</div>
+                <div class="neu-dropdown-item" data-value="Critical">🚨 Critical Priority</div>
               </div>
-              <input type="hidden" id="task-priority" value="medium">
+              <input type="hidden" id="task-priority" value="Medium">
             </div>
           </div>
 

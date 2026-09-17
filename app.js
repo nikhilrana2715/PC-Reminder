@@ -1,6 +1,6 @@
 /**
  * NEUMOREMIEND - Full-Stack Desktop PWA Reminder Application Script
- * Features: REST API Integration, Persistent DB Sync, VAPID Web Push Subscription,
+ * Features: IndexedDB Persistence, REST API Integration, Persistent DB Sync, VAPID Web Push,
  * Multi-Tab Synchronization, Recurrence Engine, Dev QA Test Suite, Real-Time Alarms.
  */
 
@@ -10,30 +10,138 @@ const API_BASE = (window.location.hostname === 'localhost' || window.location.ho
   ? (window.location.port === '3001' ? '/api' : 'http://localhost:3001/api')
   : BACKEND_TUNNEL_URL;
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAZ1QBasuMSRvgxdI6psNOIIn03zvUlOCE",
-  authDomain: "applock-security-app.firebaseapp.com",
-  databaseURL: "https://applock-security-app-default-rtdb.firebaseio.com",
-  projectId: "applock-security-app",
-  storageBucket: "applock-security-app.firebasestorage.app",
-  messagingSenderId: "837855615393",
-  appId: "1:837855615393:web:f0f2cc9057ef54208c13e0"
-};
+// ==========================================================================
+// 1. INDEXEDDB PERSISTENCE ENGINE (LOCAL-FIRST STORE)
+// ==========================================================================
 
-let cloudDb = null;
-if (typeof firebase !== 'undefined') {
-  try {
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
-    }
-    cloudDb = firebase.firestore();
-    cloudDb.enablePersistence({ synchronizeTabs: true }).catch(err => {
-      console.warn('Firestore offline persistence warning:', err);
-    });
-    console.log('🔥 Firebase Cloud Firestore Initialized!');
-  } catch (e) {
-    console.warn('Firebase initialization error:', e);
+class LocalDBManager {
+  constructor() {
+    this.dbName = 'neumoremind_idb_v2';
+    this.storeName = 'reminders';
+    this.db = null;
   }
+
+  async init() {
+    if (this.db) return this.db;
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, 1);
+      request.onerror = (e) => {
+        console.error('[IndexedDB] Open error:', e);
+        reject(e);
+      };
+      request.onsuccess = (e) => {
+        this.db = e.target.result;
+        console.log('[IndexedDB] Persistent storage connected:', this.dbName);
+        resolve(this.db);
+      };
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
+          store.createIndex('date', 'date', { unique: false });
+          store.createIndex('completionStatus', 'completionStatus', { unique: false });
+          store.createIndex('priority', 'priority', { unique: false });
+        }
+      };
+    });
+  }
+
+  async getAll() {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] getAll fallback:', e);
+      return [];
+    }
+  }
+
+  async save(reminder) {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.put(reminder);
+        req.onsuccess = () => resolve(reminder);
+        req.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] save fallback:', e);
+    }
+  }
+
+  async bulkSave(reminders) {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        reminders.forEach(r => store.put(r));
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] bulkSave error:', e);
+    }
+  }
+
+  async delete(id) {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.delete(id);
+        req.onsuccess = () => resolve(true);
+        req.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] delete error:', e);
+    }
+  }
+}
+
+const localDB = new LocalDBManager();
+
+function normalizeReminder(raw) {
+  const isCompleted = raw.completed === 1 || raw.completed === true || raw.completionStatus === 'completed';
+  const prioRaw = (raw.priority || 'Medium').toString();
+  const priority = prioRaw.charAt(0).toUpperCase() + prioRaw.slice(1).toLowerCase();
+  
+  return {
+    id: raw.id || `task-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+    title: raw.title || 'Untitled Reminder',
+    description: raw.description || raw.notes || '',
+    notes: raw.notes || raw.description || '',
+    date: raw.date || getFormattedDate(0),
+    time: raw.time || '18:00',
+    scheduled_at: raw.scheduled_at || `${raw.date || getFormattedDate(0)}T${raw.time || '18:00'}:00`,
+    priority: ['Low', 'Medium', 'High', 'Critical'].includes(priority) ? priority : 'Medium',
+    reminderStatus: raw.reminderStatus || (raw.snoozed_until ? 'snoozed' : 'pending'),
+    completionStatus: isCompleted ? 'completed' : 'pending',
+    completed: isCompleted ? 1 : 0,
+    createdAt: raw.createdAt || raw.created_at || Date.now(),
+    updatedAt: raw.updatedAt || raw.updated_at || Date.now(),
+    created_at: raw.created_at || raw.createdAt || Date.now(),
+    updated_at: raw.updated_at || raw.updatedAt || Date.now(),
+    category: raw.category || 'Personal',
+    tag: raw.tag || '',
+    location: raw.location || '',
+    recurrence: raw.recurrence || raw.recurrence_type || 'once',
+    recurrence_type: raw.recurrence_type || raw.recurrence || 'once',
+    soundEnabled: raw.soundEnabled !== undefined ? raw.soundEnabled : (raw.sound_enabled !== 0),
+    sound_enabled: raw.sound_enabled !== undefined ? (raw.sound_enabled ? 1 : 0) : 1,
+    notificationEnabled: raw.notificationEnabled !== undefined ? raw.notificationEnabled : (raw.notification_enabled !== 0),
+    notification_enabled: raw.notification_enabled !== undefined ? (raw.notification_enabled ? 1 : 0) : 1,
+    pinned: !!raw.pinned
+  };
 }
 
 class AppState {
@@ -46,11 +154,13 @@ class AppState {
       today: 0,
       upcoming: 0,
       overdue: 0,
+      highCritical: 0,
       categories: { Work: 0, Personal: 0, Health: 0, Finance: 0, Shopping: 0 },
       progressPercent: 0
     };
     this.currentFilter = 'all';
     this.currentCategory = 'all';
+    this.currentPriority = 'all';
     this.currentSort = 'dueDateAsc';
     this.searchQuery = '';
     this.soundEnabled = localStorage.getItem('neumoremind_sound_v1') !== 'false';
@@ -64,82 +174,113 @@ class AppState {
         }
       };
     }
-
-    if (cloudDb) {
-      this.initFirebaseListener();
-    }
   }
 
-  initFirebaseListener() {
-    cloudDb.collection('reminders').onSnapshot((snapshot) => {
-      const items = [];
-      snapshot.forEach(doc => {
-        items.push({ id: doc.id, ...doc.data() });
+  async fetchReminders() {
+    // 1. First load from IndexedDB for zero latency & offline capability
+    try {
+      const localItems = await localDB.getAll();
+      if (localItems && localItems.length > 0) {
+        this.rawTasks = localItems.map(normalizeReminder);
+        this.recalculateFilteredTasksAndMetrics();
+      }
+    } catch (e) {
+      console.warn('[AppState] IndexedDB read error:', e);
+    }
+
+    // 2. Fetch from backend REST API if available and merge
+    try {
+      const queryParams = new URLSearchParams({
+        filter: this.currentFilter,
+        category: this.currentCategory,
+        priority: this.currentPriority,
+        search: this.searchQuery,
+        sort: this.currentSort
       });
-      this.rawTasks = items;
-      this.recalculateFilteredTasksAndMetrics();
-      updateOnlineStatus(true);
-      renderApp();
-    }, (err) => {
-      console.warn('Firebase listener error, falling back to REST API:', err);
-    });
+
+      const res = await fetch(`${API_BASE}/reminders?${queryParams}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.reminders) {
+          const normalized = data.reminders.map(normalizeReminder);
+          this.rawTasks = normalized;
+          await localDB.bulkSave(normalized);
+          this.recalculateFilteredTasksAndMetrics();
+        }
+        updateOnlineStatus(true);
+        return true;
+      }
+    } catch (err) {
+      console.warn('Backend REST API offline, operating on IndexedDB local storage');
+      updateOnlineStatus(false);
+    }
+
+    return true;
   }
 
   recalculateFilteredTasksAndMetrics() {
     let filtered = [...this.rawTasks];
     const todayStr = getFormattedDate(0);
 
-    // Apply Filter
+    // Filter by Completion / View status
     if (this.currentFilter === 'today') {
-      filtered = filtered.filter(t => t.date === todayStr && !t.completed);
+      filtered = filtered.filter(t => t.date === todayStr && t.completionStatus !== 'completed');
     } else if (this.currentFilter === 'upcoming') {
-      filtered = filtered.filter(t => t.date > todayStr && !t.completed);
+      filtered = filtered.filter(t => t.date > todayStr && t.completionStatus !== 'completed');
     } else if (this.currentFilter === 'overdue') {
-      filtered = filtered.filter(t => t.date < todayStr && !t.completed);
+      filtered = filtered.filter(t => t.date < todayStr && t.completionStatus !== 'completed');
     } else if (this.currentFilter === 'completed') {
-      filtered = filtered.filter(t => !!t.completed);
+      filtered = filtered.filter(t => t.completionStatus === 'completed');
     }
 
-    // Apply Category
+    // Filter by Category
     if (this.currentCategory !== 'all') {
       filtered = filtered.filter(t => (t.category || '').toLowerCase() === this.currentCategory.toLowerCase());
     }
 
-    // Apply Search
+    // Filter by Priority
+    if (this.currentPriority !== 'all') {
+      filtered = filtered.filter(t => (t.priority || '').toLowerCase() === this.currentPriority.toLowerCase());
+    }
+
+    // Filter by Search Query
     if (this.searchQuery) {
       const q = this.searchQuery.toLowerCase();
       filtered = filtered.filter(t => 
         (t.title && t.title.toLowerCase().includes(q)) ||
         (t.description && t.description.toLowerCase().includes(q)) ||
         (t.notes && t.notes.toLowerCase().includes(q)) ||
+        (t.category && t.category.toLowerCase().includes(q)) ||
+        (t.priority && t.priority.toLowerCase().includes(q)) ||
         (t.tag && t.tag.toLowerCase().includes(q))
       );
     }
 
-    // Apply Sort
+    // Sort Tasks
+    const prioWeight = { Critical: 4, High: 3, Medium: 2, Low: 1 };
     filtered.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
 
       if (this.currentSort === 'dueDateAsc') return (a.date + a.time).localeCompare(b.date + b.time);
       if (this.currentSort === 'dueDateDesc') return (b.date + b.time).localeCompare(a.date + a.time);
-      if (this.currentSort === 'priority') {
-        const pMap = { high: 3, medium: 2, low: 1 };
-        return (pMap[b.priority] || 0) - (pMap[a.priority] || 0);
+      if (this.currentSort === 'priorityHigh' || this.currentSort === 'priority') {
+        return (prioWeight[b.priority] || 0) - (prioWeight[a.priority] || 0);
       }
       if (this.currentSort === 'titleAsc') return (a.title || '').localeCompare(b.title || '');
-      if (this.currentSort === 'createdDesc') return (b.created_at || 0) - (a.created_at || 0);
+      if (this.currentSort === 'createdDesc') return (b.createdAt || 0) - (a.createdAt || 0);
       return 0;
     });
 
     this.tasks = filtered;
 
-    // Metrics
+    // Metrics Calculation
     const total = this.rawTasks.length;
-    const completed = this.rawTasks.filter(t => !!t.completed).length;
-    const today = this.rawTasks.filter(t => t.date === todayStr && !t.completed).length;
-    const upcoming = this.rawTasks.filter(t => t.date > todayStr && !t.completed).length;
-    const overdue = this.rawTasks.filter(t => t.date < todayStr && !t.completed).length;
+    const completed = this.rawTasks.filter(t => t.completionStatus === 'completed').length;
+    const today = this.rawTasks.filter(t => t.date === todayStr && t.completionStatus !== 'completed').length;
+    const upcoming = this.rawTasks.filter(t => t.date > todayStr && t.completionStatus !== 'completed').length;
+    const overdue = this.rawTasks.filter(t => t.date < todayStr && t.completionStatus !== 'completed').length;
+    const highCritical = this.rawTasks.filter(t => (t.priority === 'High' || t.priority === 'Critical') && t.completionStatus !== 'completed').length;
 
     const categories = { Work: 0, Personal: 0, Health: 0, Finance: 0, Shopping: 0 };
     this.rawTasks.forEach(t => {
@@ -149,63 +290,43 @@ class AppState {
 
     const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    this.metrics = { total, completed, today, upcoming, overdue, categories, progressPercent };
-  }
-
-  async fetchReminders() {
-    if (cloudDb) return true;
-    try {
-      const queryParams = new URLSearchParams({
-        filter: this.currentFilter,
-        category: this.currentCategory,
-        search: this.searchQuery,
-        sort: this.currentSort
-      });
-
-      const res = await fetch(`${API_BASE}/reminders?${queryParams}`);
-      if (!res.ok) throw new Error('API server returned error status');
-
-      const data = await res.json();
-      this.tasks = data.reminders || [];
-      this.metrics = data.metrics || this.metrics;
-      updateOnlineStatus(true);
-      return true;
-    } catch (err) {
-      console.warn('Backend REST API offline, using local cache', err);
-      updateOnlineStatus(false);
-      return false;
-    }
+    this.metrics = { total, completed, today, upcoming, overdue, highCritical, categories, progressPercent };
   }
 
   async addTask(taskData) {
     const taskId = `task-${Date.now()}`;
-    const newTask = {
+    const newTask = normalizeReminder({
       id: taskId,
-      user_id: 'default_user',
       title: taskData.title,
-      description: taskData.description || '',
-      notes: taskData.notes || '',
+      description: taskData.description || taskData.notes || '',
+      notes: taskData.notes || taskData.description || '',
       date: taskData.date || getFormattedDate(0),
       time: taskData.time || '18:00',
       scheduled_at: `${taskData.date || getFormattedDate(0)}T${taskData.time || '18:00'}:00`,
-      timezone: 'Asia/Kolkata',
-      priority: taskData.priority || 'medium',
+      priority: taskData.priority || 'Medium',
       category: taskData.category || 'Personal',
       tag: taskData.tag || '',
       location: taskData.location || '',
-      recurrence_type: taskData.recurrence_type || 'once',
-      notification_enabled: taskData.notification_enabled !== undefined ? taskData.notification_enabled : 1,
-      sound_enabled: taskData.sound_enabled !== undefined ? taskData.sound_enabled : 1,
-      pinned: !!taskData.pinned,
+      recurrence: taskData.recurrence || taskData.recurrence_type || 'once',
+      recurrence_type: taskData.recurrence_type || taskData.recurrence || 'once',
+      reminderStatus: 'pending',
+      completionStatus: 'pending',
       completed: 0,
-      created_at: Date.now(),
-      updated_at: Date.now()
-    };
+      soundEnabled: taskData.sound_enabled !== undefined ? !!taskData.sound_enabled : true,
+      notificationEnabled: taskData.notification_enabled !== undefined ? !!taskData.notification_enabled : true,
+      pinned: !!taskData.pinned,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
 
-    if (cloudDb) {
-      await cloudDb.collection('reminders').doc(taskId).set(newTask);
-    }
+    // Save to IndexedDB
+    await localDB.save(newTask);
 
+    // Update in-memory state immediately
+    this.rawTasks.unshift(newTask);
+    this.recalculateFilteredTasksAndMetrics();
+
+    // Sync to backend REST API
     try {
       fetch(`${API_BASE}/reminders`, {
         method: 'POST',
@@ -219,35 +340,52 @@ class AppState {
   }
 
   async updateTask(id, updates) {
-    const payload = {
+    const existing = this.rawTasks.find(t => t.id === id);
+    if (!existing) return null;
+
+    const updatedTask = normalizeReminder({
+      ...existing,
       ...updates,
+      updatedAt: Date.now(),
       updated_at: Date.now()
-    };
+    });
+
     if (updates.date && updates.time) {
-      payload.scheduled_at = `${updates.date}T${updates.time}:00`;
+      updatedTask.scheduled_at = `${updates.date}T${updates.time}:00`;
     }
 
-    if (cloudDb) {
-      await cloudDb.collection('reminders').doc(id).update(payload);
-    }
+    // Save to IndexedDB
+    await localDB.save(updatedTask);
 
+    // Update in-memory state
+    const idx = this.rawTasks.findIndex(t => t.id === id);
+    if (idx !== -1) {
+      this.rawTasks[idx] = updatedTask;
+    }
+    this.recalculateFilteredTasksAndMetrics();
+
+    // Sync to backend REST API
     try {
       fetch(`${API_BASE}/reminders/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(updatedTask)
       }).catch(() => {});
     } catch (e) {}
 
     if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
-    return payload;
+    return updatedTask;
   }
 
   async deleteTask(id) {
-    if (cloudDb) {
-      await cloudDb.collection('reminders').doc(id).delete();
-    }
+    // Delete from IndexedDB
+    await localDB.delete(id);
 
+    // Update in-memory state
+    this.rawTasks = this.rawTasks.filter(t => t.id !== id);
+    this.recalculateFilteredTasksAndMetrics();
+
+    // Sync to backend REST API
     try {
       fetch(`${API_BASE}/reminders/${id}`, { method: 'DELETE' }).catch(() => {});
     } catch (e) {}
@@ -257,25 +395,17 @@ class AppState {
   }
 
   async toggleComplete(id) {
-    const existing = this.rawTasks.find(t => t.id === id) || this.tasks.find(t => t.id === id);
-    const newCompleted = existing ? (existing.completed ? 0 : 1) : 1;
+    const existing = this.rawTasks.find(t => t.id === id);
+    if (!existing) return null;
 
-    const payload = {
-      completed: newCompleted,
-      completed_at: newCompleted ? new Date().toISOString() : null,
-      updated_at: Date.now()
-    };
+    const newCompletedState = existing.completionStatus === 'completed' ? 'pending' : 'completed';
+    const isCompleted = newCompletedState === 'completed';
 
-    if (cloudDb) {
-      await cloudDb.collection('reminders').doc(id).update(payload);
-    }
-
-    try {
-      fetch(`${API_BASE}/reminders/${id}/complete`, { method: 'POST' }).catch(() => {});
-    } catch (e) {}
-
-    if (this.broadcast) this.broadcast.postMessage({ type: 'TASK_MUTATED' });
-    return payload;
+    return await this.updateTask(id, {
+      completionStatus: newCompletedState,
+      completed: isCompleted ? 1 : 0,
+      completed_at: isCompleted ? new Date().toISOString() : null
+    });
   }
 }
 
@@ -839,7 +969,7 @@ function openTaskModal(taskId = null) {
   if (locationInput) locationInput.value = '';
 
   if (taskId) {
-    const task = state.tasks.find(t => t.id === taskId);
+    const task = state.rawTasks.find(t => t.id === taskId) || state.tasks.find(t => t.id === taskId);
     if (task) {
       modalTitle.textContent = 'Edit Reminder';
       document.getElementById('task-id').value = task.id;
@@ -852,9 +982,9 @@ function openTaskModal(taskId = null) {
 
       selectDateValue(task.date || getFormattedDate(0));
       selectTimeValue(task.time || '18:00');
-      setCustomDropdownValue('priority-custom-dropdown', 'task-priority', task.priority || 'medium');
+      setCustomDropdownValue('priority-custom-dropdown', 'task-priority', task.priority || 'Medium');
       setCustomDropdownValue('category-custom-dropdown', 'task-category', task.category || 'Personal');
-      setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', task.recurrence_type || 'once');
+      setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', task.recurrence_type || task.recurrence || 'once');
       document.getElementById('task-pinned').checked = !!task.pinned;
     }
   } else {
@@ -862,7 +992,7 @@ function openTaskModal(taskId = null) {
     document.getElementById('task-id').value = '';
     selectDateValue(getFormattedDate(0));
     selectTimeValue('18:00');
-    setCustomDropdownValue('priority-custom-dropdown', 'task-priority', 'medium');
+    setCustomDropdownValue('priority-custom-dropdown', 'task-priority', 'Medium');
     setCustomDropdownValue('category-custom-dropdown', 'task-category', 'Personal');
     setCustomDropdownValue('recurrence-custom-dropdown', 'task-recurrence', 'once');
     if (notifToggle) notifToggle.checked = true;
@@ -894,6 +1024,7 @@ async function handleSaveTask(e) {
   const notifInput = document.getElementById('task-notif-enabled');
   const soundInput = document.getElementById('task-sound-enabled');
   const pinnedInput = document.getElementById('task-pinned');
+  const saveBtn = document.getElementById('modal-save-btn');
 
   const title = titleInput.value.trim();
   if (!title) {
@@ -904,22 +1035,40 @@ async function handleSaveTask(e) {
   }
   titleInput.style.border = '';
 
+  const selectedDateStr = dueDateInput.value || getFormattedDate(0);
+  const selectedTimeStr = dueTimeInput.value || '18:00';
+  const selectedDateTime = new Date(`${selectedDateStr}T${selectedTimeStr}:00`);
+  const now = new Date();
+
   const id = idInput.value;
+
+  // Accidental past-date validation check for NEW reminders (allow 60s grace)
+  if (!id && selectedDateTime.getTime() < now.getTime() - 60000) {
+    showToast('⚠️ Cannot schedule a reminder in the past! Pick a future date & time.', 'warning');
+    return;
+  }
+
   const payload = {
     title,
     description: notesInput.value.trim(),
     notes: notesInput.value.trim(),
-    date: dueDateInput.value || getFormattedDate(0),
-    time: dueTimeInput.value || '18:00',
-    priority: priorityInput.value || 'medium',
+    date: selectedDateStr,
+    time: selectedTimeStr,
+    priority: priorityInput.value || 'Medium',
     category: categoryInput.value || 'Personal',
     recurrence_type: recurrenceInput.value || 'once',
+    recurrence: recurrenceInput.value || 'once',
     tag: tagInput ? tagInput.value.trim() : '',
     location: locationInput ? locationInput.value.trim() : '',
     notification_enabled: notifInput ? (notifInput.checked ? 1 : 0) : 1,
     sound_enabled: soundInput ? (soundInput.checked ? 1 : 0) : 1,
     pinned: pinnedInput ? pinnedInput.checked : false
   };
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
 
   try {
     if (id) {
@@ -933,7 +1082,13 @@ async function handleSaveTask(e) {
     closeTaskModal();
     renderApp();
   } catch (err) {
+    console.error('Save task error:', err);
     showToast('❌ Error saving task to database', 'danger');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Reminder';
+    }
   }
 }
 
@@ -1198,6 +1353,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Custom Neumorphic Dropdowns Setup
+  setupCustomDropdown('priority-filter-dropdown', null, (val) => {
+    state.currentPriority = val;
+    renderApp();
+  });
   setupCustomDropdown('sort-custom-dropdown', null, (val) => {
     state.currentSort = val;
     renderApp();
