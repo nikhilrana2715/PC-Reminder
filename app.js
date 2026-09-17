@@ -921,9 +921,22 @@ const SVG_BELL_ON = '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></pat
 const SVG_BELL_OFF = '<path d="M13.73 21a2 2 0 0 1-3.46 0"></path><path d="M18.63 13A17.89 17.89 0 0 1 18 8"></path><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
 
 function updateSoundBtnIcon() {
+  const btn = document.getElementById('btn-toggle-sound');
   const svg = document.getElementById('sound-icon-svg');
-  if (!svg) return;
-  svg.innerHTML = state.soundEnabled ? SVG_SOUND_ON : SVG_SOUND_OFF;
+  if (btn) {
+    if (state.soundEnabled) {
+      btn.classList.add('active');
+      btn.setAttribute('aria-checked', 'true');
+      btn.title = 'Audio Sound: ON';
+    } else {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-checked', 'false');
+      btn.title = 'Audio Sound: OFF';
+    }
+  }
+  if (svg) {
+    svg.innerHTML = state.soundEnabled ? SVG_SOUND_ON : SVG_SOUND_OFF;
+  }
 }
 
 function updateNotificationBtnState(permission = (('Notification' in window) ? Notification.permission : 'default')) {
@@ -933,17 +946,20 @@ function updateNotificationBtnState(permission = (('Notification' in window) ? N
   if (permission === 'granted') {
     btn.classList.add('active');
     btn.classList.remove('denied');
-    btn.title = 'Web Push Notifications Active';
+    btn.setAttribute('aria-checked', 'true');
+    btn.title = 'Desktop Notifications: ON';
     if (svg) svg.innerHTML = SVG_BELL_ON;
   } else if (permission === 'denied') {
     btn.classList.remove('active');
     btn.classList.add('denied');
-    btn.title = 'Notifications Blocked in Browser Settings';
+    btn.setAttribute('aria-checked', 'false');
+    btn.title = 'Desktop Notifications: Blocked in Browser Settings';
     if (svg) svg.innerHTML = SVG_BELL_OFF;
   } else {
     btn.classList.remove('active');
     btn.classList.remove('denied');
-    btn.title = 'Click to Enable Web Push Notifications';
+    btn.setAttribute('aria-checked', 'false');
+    btn.title = 'Click to Enable Desktop Notifications';
     if (svg) svg.innerHTML = SVG_BELL_OFF;
   }
 }
@@ -1731,6 +1747,12 @@ async function initApp() {
         if (Notification.permission === 'granted') {
           subscribeUserToPush();
         }
+        // Register periodic background sync if supported (e.g. installed PWA on Chrome/Edge)
+        if ('periodicSync' in reg) {
+          reg.periodicSync.register('check-due-reminders', {
+            minInterval: 60 * 1000
+          }).catch(() => {});
+        }
         // Send heartbeat to activate background alarm checker in SW
         if (navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage({ type: 'HEARTBEAT' });
@@ -1773,10 +1795,7 @@ async function initApp() {
       localStorage.setItem('neumoremind_sound_v1', state.soundEnabled);
       updateSoundBtnIcon();
       if (state.soundEnabled) {
-        soundBtn.classList.add('active');
         playClickSound();
-      } else {
-        soundBtn.classList.remove('active');
       }
     });
   }

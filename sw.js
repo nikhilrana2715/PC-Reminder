@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neumoremind-v7-bg-alarm';
+const CACHE_NAME = 'neumoremind-v8-toggle-ui';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -67,7 +67,7 @@ self.addEventListener('push', (event) => {
   let data = {
     title: '⏰ Reminder Due',
     body: 'You have a scheduled reminder!',
-    icon: 'assets/icons/favicon.svg',
+    icon: 'assets/icons/icon-192.png',
     badge: 'assets/icons/favicon.svg',
     tag: 'reminder-notification',
     data: { url: './' },
@@ -90,7 +90,7 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: data.icon || 'assets/icons/favicon.svg',
+    icon: data.icon || 'assets/icons/icon-192.png',
     badge: data.badge || 'assets/icons/favicon.svg',
     tag: reminderId, // Disambiguation: tag with task ID so each reminder has its own OS notification
     data: data.data || { reminderId, url: './' },
@@ -100,7 +100,8 @@ self.addEventListener('push', (event) => {
       { action: 'open', title: '📖 Open App' }
     ],
     requireInteraction: true,
-    vibrate: [250, 150, 250, 150, 350]
+    vibrate: [250, 150, 250, 150, 350],
+    silent: false
   };
 
   event.waitUntil(
@@ -150,7 +151,7 @@ self.addEventListener('message', (event) => {
     const task = event.data.task;
     const options = {
       body: task.body || task.description || 'Reminder scheduled time reached',
-      icon: 'assets/icons/favicon.svg',
+      icon: 'assets/icons/icon-192.png',
       badge: 'assets/icons/favicon.svg',
       tag: task.id,
       data: { reminderId: task.id, url: './' },
@@ -160,7 +161,8 @@ self.addEventListener('message', (event) => {
         { action: 'open', title: '📖 Open App' }
       ],
       requireInteraction: true,
-      vibrate: [250, 150, 250, 150, 350]
+      vibrate: [250, 150, 250, 150, 350],
+      silent: false
     };
     self.registration.showNotification(`⏰ ${task.title}`, options);
   }
@@ -231,7 +233,7 @@ async function checkDueReminders() {
         const title = task.title || 'Reminder';
         const options = {
           body: task.description || task.notes || 'Reminder scheduled time reached',
-          icon: 'assets/icons/favicon.svg',
+          icon: 'assets/icons/icon-192.png',
           badge: 'assets/icons/favicon.svg',
           tag: task.id,
           data: { reminderId: task.id, url: './' },
@@ -241,7 +243,8 @@ async function checkDueReminders() {
             { action: 'open', title: '📖 Open App' }
           ],
           requireInteraction: true,
-          vibrate: [250, 150, 250, 150, 350]
+          vibrate: [250, 150, 250, 150, 350],
+          silent: false
         };
 
         await self.registration.showNotification(`⏰ ${title}`, options);
@@ -255,6 +258,13 @@ async function checkDueReminders() {
     console.warn('[SW] Background alarm check error:', e);
   }
 }
+
+// Periodic Background Sync Event (Supported in Chromium installed PWAs)
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'check-due-reminders' || event.tag === 'reminder-sync') {
+    event.waitUntil(checkDueReminders());
+  }
+});
 
 // Start checker on SW activate
 self.addEventListener('activate', () => {

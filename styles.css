@@ -193,6 +193,173 @@ button:focus-visible,
   transform: translateY(0);
 }
 
+/* ========== Physical 3D Illuminated ON/OFF Toggle Switch ========== */
+button.neu-toggle-wrap {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 9999px;
+  transition: transform 0.15s ease;
+}
+
+button.neu-toggle-wrap:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 3px;
+}
+
+button.neu-toggle-wrap:active {
+  transform: scale(0.96);
+}
+
+/* Translucent frosted outer ring + luminous pill track */
+.neu-toggle-track {
+  position: relative;
+  width: 66px;
+  height: 32px;
+  border-radius: 9999px;
+  /* Frosted outer rim/bezel */
+  border: 2.5px solid rgba(255, 255, 255, 0.75);
+  /* OFF state: warm luminous coral/red */
+  background: linear-gradient(180deg, #f85b5b 0%, #d93838 100%);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.25),
+    inset 0 -1px 3px rgba(255, 255, 255, 0.3),
+    0 3px 10px rgba(220, 53, 69, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ON state: vibrant luminous emerald/lime green */
+.neu-toggle-wrap.active .neu-toggle-track {
+  border-color: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(180deg, #38df64 0%, #20be4e 100%);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.2),
+    inset 0 -1px 3px rgba(255, 255, 255, 0.35),
+    0 3px 12px rgba(34, 197, 94, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Denied/Disabled state */
+.neu-toggle-wrap.denied .neu-toggle-track {
+  background: linear-gradient(180deg, #888 0%, #666 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* 3D Convex Dome Circular Knob */
+.neu-toggle-knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  /* OFF knob: 3D coral-red dome */
+  background: radial-gradient(circle at 35% 30%, #ff8383 0%, #eb4d4b 60%, #c0392b 100%);
+  box-shadow:
+    2px 2px 5px rgba(0, 0, 0, 0.28),
+    inset 0 2px 3px rgba(255, 255, 255, 0.65),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25),
+    0 0 8px rgba(235, 77, 75, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: left 0.32s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.3s ease, box-shadow 0.3s ease;
+  z-index: 2;
+}
+
+/* ON knob: 3D emerald-green dome on the right */
+.neu-toggle-wrap.active .neu-toggle-knob {
+  left: calc(100% - 27px);
+  background: radial-gradient(circle at 35% 30%, #5df88e 0%, #2ecc71 60%, #1c9e4c 100%);
+  box-shadow:
+    -2px 2px 5px rgba(0, 0, 0, 0.28),
+    inset 0 2px 3px rgba(255, 255, 255, 0.65),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.2),
+    0 0 10px rgba(46, 204, 113, 0.7);
+}
+
+.neu-toggle-wrap.denied .neu-toggle-knob {
+  background: radial-gradient(circle at 35% 30%, #aaa 0%, #777 60%, #555 100%);
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+/* Icon inside knob */
+.neu-toggle-knob svg {
+  color: #ffffff;
+  stroke: #ffffff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  transition: transform 0.25s ease;
+  pointer-events: none;
+}
+
+.neu-toggle-wrap:hover .neu-toggle-knob svg {
+  transform: scale(1.1);
+}
+
+/* Glowing ON / OFF typography inside the track */
+.neu-toggle-label {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  z-index: 1;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  line-height: 1;
+}
+
+/* OFF label on the right */
+.neu-toggle-wrap:not(.active) .neu-toggle-label {
+  right: 7px;
+}
+.neu-toggle-wrap:not(.active) .neu-toggle-label::after {
+  content: 'OFF';
+}
+
+/* ON label on the left */
+.neu-toggle-wrap.active .neu-toggle-label {
+  left: 7px;
+}
+.neu-toggle-wrap.active .neu-toggle-label::after {
+  content: 'ON';
+}
+
+/* Dark mode styling */
+[data-theme="dark"] .neu-toggle-track {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+[data-theme="dark"] .neu-toggle-wrap.active .neu-toggle-track {
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.35),
+    0 0 16px rgba(46, 204, 113, 0.5);
+}
+[data-theme="dark"] .neu-toggle-wrap:not(.active) .neu-toggle-track {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.35),
+    0 0 14px rgba(235, 77, 75, 0.45);
+}
+/* ========== End Toggle Switch ========== */
+
 .neu-btn {
   display: inline-flex;
   align-items: center;
