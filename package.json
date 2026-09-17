@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node server/server.js",
     "server": "node server/server.js",
-    "client": "npx serve -l 8080 .",
-    "dev": "node server/server.js"
+    "dev": "node server/server.js",
+    "test": "node tests/gate1_tests.js && node tests/gate1_backend_tests.js && node tests/gate2_tests.js && node tests/gate3_tests.js && node tests/gate4_stress_tests.js",
+    "security-scan": "node scripts/security_scan.js"
   },
   "keywords": ["pwa", "reminder", "neumorphism", "web-push", "scheduler"],
   "author": "NeumoRemind Team",
