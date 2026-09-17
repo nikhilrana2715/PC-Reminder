@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: neumoremind-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/server.js
+    envVars:
+      - key: VAPID_PUBLIC_KEY
+        value: BNIa0rkFpaTe4n5gd4vCngiupsKdbNUuXW4e0y8V_QPKaPSmMa7a2hkSsgRnrYWPAX30WpaSJVUsKrjwieaEWF8
+      - key: VAPID_PRIVATE_KEY
+        value: lUKEYye3QXpXiRm_RFYlMq3MPoWrcpW1Mq4Cqv_08tg
+      - key: VAPID_SUBJECT
+        value: mailto:admin@neumoremind.app
