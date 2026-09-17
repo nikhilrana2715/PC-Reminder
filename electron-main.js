@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow = null;
 let tray = null;
@@ -17,6 +18,36 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
   });
+}
+
+async function checkDesktopShortcutPermission() {
+  try {
+    const desktopPath = app.getPath('desktop');
+    const shortcutPath = path.join(desktopPath, 'NeumoRemind.lnk');
+    if (!fs.existsSync(shortcutPath)) {
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        buttons: ['Yes, Create Desktop Icon', 'No, Later'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'NeumoRemind Desktop Shortcut',
+        message: 'Do you want to create a NeumoRemind shortcut on your Desktop for 1-click access?',
+        icon: path.join(__dirname, 'assets/icons/icon.ico')
+      });
+
+      if (response === 0) {
+        shell.writeShortcutLink(shortcutPath, 'create', {
+          target: process.execPath,
+          cwd: path.dirname(process.execPath),
+          icon: process.execPath,
+          iconIndex: 0,
+          description: 'NeumoRemind 24/7 Desktop Reminder Engine'
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error checking desktop shortcut:', err);
+  }
 }
 
 function createWindow() {
@@ -42,6 +73,9 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    setTimeout(() => {
+      checkDesktopShortcutPermission();
+    }, 1200);
   });
 
   // When user clicks [X] close button: HIDE instead of quit, so background reminders stay alive!
@@ -160,3 +194,21 @@ ipcMain.on('focus-window', () => {
     mainWindow.focus();
   }
 });
+
+ipcMain.handle('create-desktop-shortcut', async () => {
+  try {
+    const desktopPath = app.getPath('desktop');
+    const shortcutPath = path.join(desktopPath, 'NeumoRemind.lnk');
+    shell.writeShortcutLink(shortcutPath, 'create', {
+      target: process.execPath,
+      cwd: path.dirname(process.execPath),
+      icon: process.execPath,
+      iconIndex: 0,
+      description: 'NeumoRemind 24/7 Desktop Reminder Engine'
+    });
+    return { success: true, path: shortcutPath };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+

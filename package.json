@@ -10,7 +10,8 @@
     "dev": "node server/server.js",
     "test": "node tests/gate1_tests.js && node tests/gate1_backend_tests.js && node tests/gate2_tests.js && node tests/gate3_tests.js && node tests/gate4_stress_tests.js",
     "security-scan": "node scripts/security_scan.js",
-    "dist:win": "electron-packager . NeumoRemind --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icons/icon.ico --ignore=dist --ignore=tests --ignore=scratch --ignore=server/node_modules"
+    "dist:win": "electron-packager . NeumoRemind --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icons/icon.ico --ignore=dist --ignore=dist-installer --ignore=tests --ignore=scratch --ignore=server/node_modules",
+    "build:installer": "electron-builder --win nsis"
   },
   "keywords": [
     "pwa",
@@ -23,6 +24,46 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^44.4.1",
+    "electron-builder": "^26.15.3",
     "electron-packager": "^17.1.2"
+  },
+  "build": {
+    "appId": "com.neumoremind.app",
+    "productName": "NeumoRemind",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icons/icon.ico"
+    },
+    "nsis": {
+      "include": "installer.nsh",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NeumoRemind",
+      "installerIcon": "assets/icons/icon.ico",
+      "uninstallerIcon": "assets/icons/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!dist-installer/**",
+      "!tests/**",
+      "!scratch/**",
+      "!.git/**"
+    ],
+    "directories": {
+      "output": "dist-installer"
+    }
   }
 }

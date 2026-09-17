@@ -6,3 +6,4 @@ scratch/
 .system_generated/
 *.log
 dist/
+dist-installer/
