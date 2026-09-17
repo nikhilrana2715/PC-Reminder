@@ -73,8 +73,8 @@ async function dispatchWebPush(reminder) {
   }
 
   const payload = JSON.stringify({
-    title: '⏰ Reminder Due',
-    body: `${reminder.title}${reminder.notes ? '\n' + reminder.notes : ''}`,
+    title: `⏰ ${reminder.title}`,
+    body: `${reminder.notes || reminder.description || 'Your scheduled reminder is due now!'}`,
     icon: 'assets/icons/favicon.svg',
     badge: 'assets/icons/favicon.svg',
     tag: reminder.id,
@@ -88,9 +88,9 @@ async function dispatchWebPush(reminder) {
       url: './'
     },
     actions: [
-      { action: 'open', title: '📖 Open' },
       { action: 'complete', title: '✓ Complete' },
-      { action: 'snooze_5m', title: '💤 Snooze 5m' }
+      { action: 'snooze_10m', title: '💤 Snooze 10m' },
+      { action: 'open', title: '📖 Open App' }
     ]
   });
 

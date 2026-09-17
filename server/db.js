@@ -389,8 +389,10 @@ class PersistentDB {
     reminder.date = `${year}-${month}-${day}`;
     reminder.time = `${h}:${m}`;
     reminder.scheduled_at = `${year}-${month}-${day}T${h}:${m}:00`;
+    reminder.reminderStatus = 'snoozed';
     reminder.snoozed_until = now.toISOString();
-    reminder.updated_at = Date.now();
+    reminder.updatedAt = Date.now();
+    reminder.updated_at = reminder.updatedAt;
 
     this.saveData();
     return reminder;
