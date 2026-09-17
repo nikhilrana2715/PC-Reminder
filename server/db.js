@@ -260,40 +260,53 @@ class PersistentDB {
   }
 
   createReminder(reminderData) {
-    const id = reminderData.id || `task-${Date.now()}`;
+    const id = reminderData.id || `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const now = Date.now();
-
     const scheduled_at = reminderData.scheduled_at || `${reminderData.date}T${reminderData.time}:00`;
+    const isCompleted = reminderData.completed === 1 || reminderData.completed === true || reminderData.completionStatus === 'completed';
+    const prioRaw = (reminderData.priority || 'Medium').toString();
+    const prio = prioRaw.charAt(0).toUpperCase() + prioRaw.slice(1).toLowerCase();
+    const priority = ['Low', 'Medium', 'High', 'Critical'].includes(prio) ? prio : 'Medium';
 
     const reminder = {
       id,
       user_id: reminderData.user_id || 'default_user',
-      title: reminderData.title,
-      description: reminderData.description || '',
+      title: (reminderData.title || '').trim(),
+      description: (reminderData.description || reminderData.notes || '').trim(),
       date: reminderData.date || getFormattedDate(0),
       time: reminderData.time || '18:00',
       scheduled_at,
       timezone: reminderData.timezone || 'Asia/Kolkata',
-      priority: reminderData.priority || 'medium',
-      category: reminderData.category || 'Personal',
-      tag: reminderData.tag || '',
-      status: 'active',
-      completed: reminderData.completed ? 1 : 0,
-      completed_at: reminderData.completed ? new Date().toISOString() : null,
-      recurrence_type: reminderData.recurrence_type || 'once',
+      priority,
+      reminderStatus: reminderData.reminderStatus || (isCompleted ? 'completed' : (reminderData.snoozed_until ? 'snoozed' : 'pending')),
+      completionStatus: isCompleted ? 'completed' : 'pending',
+      completed: isCompleted ? 1 : 0,
+      completed_at: isCompleted ? (reminderData.completed_at || new Date().toISOString()) : null,
+      recurrence_type: reminderData.recurrence_type || reminderData.recurrence || 'once',
       recurrence_rule: reminderData.recurrence_rule || null,
       notification_enabled: reminderData.notification_enabled !== undefined ? (reminderData.notification_enabled ? 1 : 0) : 1,
       sound_enabled: reminderData.sound_enabled !== undefined ? (reminderData.sound_enabled ? 1 : 0) : 1,
-      location: reminderData.location || '',
-      notes: reminderData.notes || reminderData.description || '',
+      location: (reminderData.location || '').trim(),
+      notes: (reminderData.notes || reminderData.description || '').trim(),
+      tag: (reminderData.tag || '').trim(),
+      category: reminderData.category || 'Personal',
       pinned: !!reminderData.pinned,
-      created_at: now,
-      updated_at: now,
-      snoozed_until: null,
+      createdAt: reminderData.createdAt || reminderData.created_at || now,
+      updatedAt: reminderData.updatedAt || reminderData.updated_at || now,
+      created_at: reminderData.created_at || reminderData.createdAt || now,
+      updated_at: reminderData.updated_at || reminderData.updatedAt || now,
+      snoozed_until: reminderData.snoozed_until || null,
       last_notified_at: null
     };
 
-    this.data.reminders.push(reminder);
+    // Prevent duplicate entries by checking existing ID
+    const existingIndex = this.data.reminders.findIndex(r => r.id === id);
+    if (existingIndex !== -1) {
+      this.data.reminders[existingIndex] = reminder;
+    } else {
+      this.data.reminders.push(reminder);
+    }
+
     this.saveData();
     return reminder;
   }
@@ -303,16 +316,32 @@ class PersistentDB {
     if (index === -1) return null;
 
     const existing = this.data.reminders[index];
+    const now = Date.now();
     const updated = {
       ...existing,
       ...updates,
-      updated_at: Date.now()
+      id,
+      updatedAt: now,
+      updated_at: now
     };
 
     if (updates.date || updates.time) {
       const d = updates.date || existing.date;
       const t = updates.time || existing.time;
       updated.scheduled_at = `${d}T${t}:00`;
+    }
+
+    if (updates.completionStatus !== undefined || updates.completed !== undefined) {
+      const isComp = updates.completed === 1 || updates.completed === true || updates.completionStatus === 'completed';
+      updated.completed = isComp ? 1 : 0;
+      updated.completionStatus = isComp ? 'completed' : 'pending';
+      updated.reminderStatus = isComp ? 'completed' : (updated.reminderStatus === 'completed' ? 'pending' : updated.reminderStatus);
+      updated.completed_at = isComp ? (updates.completed_at || new Date().toISOString()) : null;
+    }
+
+    if (updates.priority) {
+      const p = updates.priority.charAt(0).toUpperCase() + updates.priority.slice(1).toLowerCase();
+      updated.priority = ['Low', 'Medium', 'High', 'Critical'].includes(p) ? p : existing.priority;
     }
 
     this.data.reminders[index] = updated;
@@ -331,10 +360,14 @@ class PersistentDB {
     const reminder = this.getReminderById(id);
     if (!reminder) return null;
 
-    const newCompleted = reminder.completed === 1 ? 0 : 1;
+    const isCurrentlyDone = reminder.completed === 1 || reminder.completionStatus === 'completed';
+    const newCompleted = isCurrentlyDone ? 0 : 1;
     reminder.completed = newCompleted;
+    reminder.completionStatus = newCompleted === 1 ? 'completed' : 'pending';
+    reminder.reminderStatus = newCompleted === 1 ? 'completed' : 'pending';
     reminder.completed_at = newCompleted === 1 ? new Date().toISOString() : null;
-    reminder.updated_at = Date.now();
+    reminder.updatedAt = Date.now();
+    reminder.updated_at = reminder.updatedAt;
 
     this.saveData();
     return reminder;

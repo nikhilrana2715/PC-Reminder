@@ -4,11 +4,18 @@
  * Multi-Tab Synchronization, Recurrence Engine, Dev QA Test Suite, Real-Time Alarms.
  */
 
-const BACKEND_TUNNEL_URL = 'https://rotten-needles-drum.loca.lt/api';
+// Dynamic and resilient API_BASE detection
+const getApiBase = () => {
+  const custom = localStorage.getItem('neumoremind_api_base');
+  if (custom) return custom.replace(/\/$/, '');
+  if (window.location.port === '3001') return '/api';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3001/api';
+  }
+  return '/api';
+};
 
-const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? (window.location.port === '3001' ? '/api' : 'http://localhost:3001/api')
-  : BACKEND_TUNNEL_URL;
+const API_BASE = getApiBase();
 
 // ==========================================================================
 // 1. INDEXEDDB PERSISTENCE ENGINE (LOCAL-FIRST STORE)
@@ -62,6 +69,22 @@ class LocalDBManager {
     }
   }
 
+  async getById(id) {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] getById error:', e);
+      return null;
+    }
+  }
+
   async save(reminder) {
     try {
       await this.init();
@@ -74,6 +97,7 @@ class LocalDBManager {
       });
     } catch (e) {
       console.warn('[IndexedDB] save fallback:', e);
+      return reminder;
     }
   }
 
@@ -89,6 +113,7 @@ class LocalDBManager {
       });
     } catch (e) {
       console.warn('[IndexedDB] bulkSave error:', e);
+      return false;
     }
   }
 
@@ -104,6 +129,23 @@ class LocalDBManager {
       });
     } catch (e) {
       console.warn('[IndexedDB] delete error:', e);
+      return false;
+    }
+  }
+
+  async clear() {
+    try {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.clear();
+        req.onsuccess = () => resolve(true);
+        req.onerror = (e) => reject(e);
+      });
+    } catch (e) {
+      console.warn('[IndexedDB] clear error:', e);
+      return false;
     }
   }
 }
@@ -113,36 +155,215 @@ const localDB = new LocalDBManager();
 function normalizeReminder(raw) {
   const isCompleted = raw.completed === 1 || raw.completed === true || raw.completionStatus === 'completed';
   const prioRaw = (raw.priority || 'Medium').toString();
-  const priority = prioRaw.charAt(0).toUpperCase() + prioRaw.slice(1).toLowerCase();
+  const formattedPrio = prioRaw.charAt(0).toUpperCase() + prioRaw.slice(1).toLowerCase();
+  const priority = ['Low', 'Medium', 'High', 'Critical'].includes(formattedPrio) ? formattedPrio : 'Medium';
   
+  const now = Date.now();
+  const createdAt = raw.createdAt || raw.created_at || now;
+  const updatedAt = raw.updatedAt || raw.updated_at || now;
+
+  let reminderStatus = raw.reminderStatus;
+  if (isCompleted) {
+    reminderStatus = 'completed';
+  } else if (!reminderStatus) {
+    reminderStatus = raw.snoozed_until ? 'snoozed' : 'pending';
+  }
+
+  const completionStatus = isCompleted ? 'completed' : 'pending';
+  const date = (raw.date || getFormattedDate(0)).trim();
+  const time = (raw.time || '18:00').trim();
+  const scheduled_at = raw.scheduled_at || `${date}T${time}:00`;
+
   return {
-    id: raw.id || `task-${Date.now()}-${Math.floor(Math.random()*1000)}`,
-    title: raw.title || 'Untitled Reminder',
-    description: raw.description || raw.notes || '',
-    notes: raw.notes || raw.description || '',
-    date: raw.date || getFormattedDate(0),
-    time: raw.time || '18:00',
-    scheduled_at: raw.scheduled_at || `${raw.date || getFormattedDate(0)}T${raw.time || '18:00'}:00`,
-    priority: ['Low', 'Medium', 'High', 'Critical'].includes(priority) ? priority : 'Medium',
-    reminderStatus: raw.reminderStatus || (raw.snoozed_until ? 'snoozed' : 'pending'),
-    completionStatus: isCompleted ? 'completed' : 'pending',
+    id: raw.id || `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    title: (raw.title || '').trim() || 'Untitled Reminder',
+    description: (raw.description || raw.notes || '').trim(),
+    notes: (raw.notes || raw.description || '').trim(),
+    date,
+    time,
+    scheduled_at,
+    priority,
+    reminderStatus,
+    completionStatus,
     completed: isCompleted ? 1 : 0,
-    createdAt: raw.createdAt || raw.created_at || Date.now(),
-    updatedAt: raw.updatedAt || raw.updated_at || Date.now(),
-    created_at: raw.created_at || raw.createdAt || Date.now(),
-    updated_at: raw.updated_at || raw.updatedAt || Date.now(),
+    completed_at: isCompleted ? (raw.completed_at || new Date().toISOString()) : null,
+    createdAt,
+    updatedAt,
+    created_at: createdAt,
+    updated_at: updatedAt,
     category: raw.category || 'Personal',
-    tag: raw.tag || '',
-    location: raw.location || '',
+    tag: (raw.tag || '').trim(),
+    location: (raw.location || '').trim(),
     recurrence: raw.recurrence || raw.recurrence_type || 'once',
     recurrence_type: raw.recurrence_type || raw.recurrence || 'once',
-    soundEnabled: raw.soundEnabled !== undefined ? raw.soundEnabled : (raw.sound_enabled !== 0),
+    soundEnabled: raw.soundEnabled !== undefined ? !!raw.soundEnabled : (raw.sound_enabled !== 0),
     sound_enabled: raw.sound_enabled !== undefined ? (raw.sound_enabled ? 1 : 0) : 1,
-    notificationEnabled: raw.notificationEnabled !== undefined ? raw.notificationEnabled : (raw.notification_enabled !== 0),
+    notificationEnabled: raw.notificationEnabled !== undefined ? !!raw.notificationEnabled : (raw.notification_enabled !== 0),
     notification_enabled: raw.notification_enabled !== undefined ? (raw.notification_enabled ? 1 : 0) : 1,
-    pinned: !!raw.pinned
+    pinned: !!raw.pinned,
+    snoozed_until: raw.snoozed_until || null,
+    last_notified_at: raw.last_notified_at || null
   };
 }
+
+// ==========================================================================
+// 1.5. CLIENT REMINDER SCHEDULER & NOTIFICATION TIMERS
+// ==========================================================================
+
+class ClientReminderScheduler {
+  constructor() {
+    this.activeTimers = new Map(); // taskId -> timerId
+    this.checkInterval = null;
+  }
+
+  schedule(task) {
+    if (!task || !task.id) return;
+
+    // If completed or notifications disabled, cancel and do not schedule
+    if (task.completed === 1 || task.completionStatus === 'completed' || task.notificationEnabled === false) {
+      this.cancel(task.id);
+      return;
+    }
+
+    this.cancel(task.id); // clear any existing timer for this ID
+
+    const scheduledDate = new Date(task.scheduled_at || `${task.date}T${task.time}:00`);
+    const now = Date.now();
+    const diffMs = scheduledDate.getTime() - now;
+
+    // Schedule if in the future (within 24.8 days JS setTimeout limit)
+    if (diffMs > 0 && diffMs < 2147483647) {
+      const timerId = setTimeout(() => {
+        this.activeTimers.delete(task.id);
+        this.triggerReminder(task);
+      }, diffMs);
+      this.activeTimers.set(task.id, timerId);
+    }
+  }
+
+  reschedule(task) {
+    this.cancel(task.id);
+    this.schedule(task);
+  }
+
+  cancel(taskId) {
+    if (this.activeTimers.has(taskId)) {
+      clearTimeout(this.activeTimers.get(taskId));
+      this.activeTimers.delete(taskId);
+      return true;
+    }
+    return false;
+  }
+
+  hasTimer(taskId) {
+    return this.activeTimers.has(taskId);
+  }
+
+  clearAll() {
+    for (const [id, timerId] of this.activeTimers.entries()) {
+      clearTimeout(timerId);
+    }
+    this.activeTimers.clear();
+  }
+
+  init(tasks = []) {
+    this.clearAll();
+    tasks.forEach(task => this.schedule(task));
+    this.reconcileMissedReminders(tasks);
+
+    if (!this.checkInterval) {
+      this.checkInterval = setInterval(() => {
+        if (state && state.rawTasks) {
+          this.checkDueTasks(state.rawTasks);
+        }
+      }, 15000);
+    }
+  }
+
+  checkDueTasks(tasks) {
+    const now = new Date();
+    const currentIsoDate = getFormattedDate(0);
+    const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    for (const task of tasks) {
+      if (task.completed === 1 || task.completionStatus === 'completed' || task.notificationEnabled === false) continue;
+      if (task.date === currentIsoDate && task.time === currentHHMM) {
+        if (task.last_notified_at) {
+          const lastDate = new Date(task.last_notified_at);
+          if (now.getTime() - lastDate.getTime() < 55000) continue;
+        }
+        this.triggerReminder(task);
+      }
+    }
+  }
+
+  reconcileMissedReminders(tasks) {
+    const now = Date.now();
+    let missedCount = 0;
+    for (const task of tasks) {
+      if (task.completed === 1 || task.completionStatus === 'completed') continue;
+      const scheduledTime = new Date(task.scheduled_at || `${task.date}T${task.time}:00`).getTime();
+      // If overdue by more than 2 minutes and not marked missed or notified
+      if (scheduledTime < now - 120000 && task.reminderStatus !== 'missed') {
+        task.reminderStatus = 'missed';
+        localDB.save(task);
+        missedCount++;
+      }
+    }
+    if (missedCount > 0) {
+      console.log(`[Reconciliation] Identified ${missedCount} missed reminder(s).`);
+      if (typeof showToast === 'function') {
+        showToast(`⏰ You have ${missedCount} missed reminder(s) from when the app was closed.`, 'warning', 6000);
+      }
+    }
+  }
+
+  triggerReminder(task) {
+    console.log(`[Scheduler] ⏰ Triggering reminder: "${task.title}" (ID: ${task.id})`);
+    task.last_notified_at = new Date().toISOString();
+    task.reminderStatus = 'fired';
+    localDB.save(task);
+
+    // Play Sound if enabled
+    if (task.soundEnabled !== false && state.soundEnabled) {
+      if (typeof playAlarmChime === 'function') playAlarmChime();
+    }
+
+    // Show Alarm Modal in UI
+    if (typeof AlarmEngine !== 'undefined' && AlarmEngine.startRinging) {
+      AlarmEngine.startRinging(task);
+    }
+
+    // Show Native Desktop Notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            task: {
+              id: task.id,
+              title: task.title,
+              body: task.description || task.notes || `Scheduled for ${task.time}`,
+              priority: task.priority
+            }
+          });
+        } else {
+          new Notification(`⏰ ${task.title}`, {
+            body: task.description || task.notes || `Scheduled for ${task.time}`,
+            icon: 'assets/icons/favicon.svg',
+            tag: task.id,
+            requireInteraction: true
+          });
+        }
+      } catch (e) {
+        console.warn('Notification trigger error:', e);
+      }
+    }
+  }
+}
+
+const clientScheduler = new ClientReminderScheduler();
+
 
 class AppState {
   constructor() {
@@ -183,6 +404,7 @@ class AppState {
       if (localItems && localItems.length > 0) {
         this.rawTasks = localItems.map(normalizeReminder);
         this.recalculateFilteredTasksAndMetrics();
+        clientScheduler.init(this.rawTasks);
       }
     } catch (e) {
       console.warn('[AppState] IndexedDB read error:', e);
@@ -206,6 +428,7 @@ class AppState {
           this.rawTasks = normalized;
           await localDB.bulkSave(normalized);
           this.recalculateFilteredTasksAndMetrics();
+          clientScheduler.init(this.rawTasks);
         }
         updateOnlineStatus(true);
         return true;
@@ -243,7 +466,7 @@ class AppState {
       filtered = filtered.filter(t => (t.priority || '').toLowerCase() === this.currentPriority.toLowerCase());
     }
 
-    // Filter by Search Query
+    // Filter by Search Query (title, description, notes, category, priority, tag)
     if (this.searchQuery) {
       const q = this.searchQuery.toLowerCase();
       filtered = filtered.filter(t => 
@@ -294,27 +517,13 @@ class AppState {
   }
 
   async addTask(taskData) {
-    const taskId = `task-${Date.now()}`;
+    const taskId = taskData.id || `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const newTask = normalizeReminder({
+      ...taskData,
       id: taskId,
-      title: taskData.title,
-      description: taskData.description || taskData.notes || '',
-      notes: taskData.notes || taskData.description || '',
-      date: taskData.date || getFormattedDate(0),
-      time: taskData.time || '18:00',
-      scheduled_at: `${taskData.date || getFormattedDate(0)}T${taskData.time || '18:00'}:00`,
-      priority: taskData.priority || 'Medium',
-      category: taskData.category || 'Personal',
-      tag: taskData.tag || '',
-      location: taskData.location || '',
-      recurrence: taskData.recurrence || taskData.recurrence_type || 'once',
-      recurrence_type: taskData.recurrence_type || taskData.recurrence || 'once',
       reminderStatus: 'pending',
       completionStatus: 'pending',
       completed: 0,
-      soundEnabled: taskData.sound_enabled !== undefined ? !!taskData.sound_enabled : true,
-      notificationEnabled: taskData.notification_enabled !== undefined ? !!taskData.notification_enabled : true,
-      pinned: !!taskData.pinned,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
@@ -322,9 +531,17 @@ class AppState {
     // Save to IndexedDB
     await localDB.save(newTask);
 
-    // Update in-memory state immediately
-    this.rawTasks.unshift(newTask);
+    // Update in-memory state without duplicates
+    const existingIndex = this.rawTasks.findIndex(t => t.id === newTask.id);
+    if (existingIndex !== -1) {
+      this.rawTasks[existingIndex] = newTask;
+    } else {
+      this.rawTasks.unshift(newTask);
+    }
     this.recalculateFilteredTasksAndMetrics();
+
+    // Schedule notification timer
+    clientScheduler.schedule(newTask);
 
     // Sync to backend REST API
     try {
@@ -346,23 +563,30 @@ class AppState {
     const updatedTask = normalizeReminder({
       ...existing,
       ...updates,
+      id, // Preserve immutable ID
+      createdAt: existing.createdAt || existing.created_at,
       updatedAt: Date.now(),
       updated_at: Date.now()
     });
 
-    if (updates.date && updates.time) {
-      updatedTask.scheduled_at = `${updates.date}T${updates.time}:00`;
+    if (updates.date || updates.time) {
+      const d = updates.date || existing.date;
+      const t = updates.time || existing.time;
+      updatedTask.scheduled_at = `${d}T${t}:00`;
     }
 
     // Save to IndexedDB
     await localDB.save(updatedTask);
 
-    // Update in-memory state
+    // Update in-memory state in-place (no duplicate entries)
     const idx = this.rawTasks.findIndex(t => t.id === id);
     if (idx !== -1) {
       this.rawTasks[idx] = updatedTask;
     }
     this.recalculateFilteredTasksAndMetrics();
+
+    // Reschedule notification timer
+    clientScheduler.reschedule(updatedTask);
 
     // Sync to backend REST API
     try {
@@ -378,6 +602,9 @@ class AppState {
   }
 
   async deleteTask(id) {
+    // Cancel any active notification timer immediately
+    clientScheduler.cancel(id);
+
     // Delete from IndexedDB
     await localDB.delete(id);
 
@@ -398,14 +625,24 @@ class AppState {
     const existing = this.rawTasks.find(t => t.id === id);
     if (!existing) return null;
 
-    const newCompletedState = existing.completionStatus === 'completed' ? 'pending' : 'completed';
+    const isDone = existing.completionStatus === 'completed' || existing.completed === 1;
+    const newCompletedState = isDone ? 'pending' : 'completed';
     const isCompleted = newCompletedState === 'completed';
 
-    return await this.updateTask(id, {
+    const updated = await this.updateTask(id, {
       completionStatus: newCompletedState,
       completed: isCompleted ? 1 : 0,
+      reminderStatus: isCompleted ? 'completed' : 'pending',
       completed_at: isCompleted ? new Date().toISOString() : null
     });
+
+    if (isCompleted) {
+      clientScheduler.cancel(id);
+    } else {
+      clientScheduler.schedule(updated);
+    }
+
+    return updated;
   }
 }
 
@@ -1032,8 +1269,16 @@ function closeTaskModal() {
   document.getElementById('task-modal').classList.add('hidden');
 }
 
+let isSubmittingTaskForm = false;
+
 async function handleSaveTask(e) {
-  if (e) e.preventDefault();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // Prevent duplicate submissions / rapid clicks
+  if (isSubmittingTaskForm) return;
 
   const idInput = document.getElementById('task-id');
   const titleInput = document.getElementById('task-title');
@@ -1050,23 +1295,43 @@ async function handleSaveTask(e) {
   const pinnedInput = document.getElementById('task-pinned');
   const saveBtn = document.getElementById('modal-save-btn');
 
-  const title = titleInput.value.trim();
+  // 1. Title Validation
+  const title = (titleInput ? titleInput.value : '').trim();
   if (!title) {
-    titleInput.style.border = '2px solid var(--danger-color)';
-    titleInput.focus();
-    showToast('⚠️ Please enter a reminder title!', 'warning');
+    if (titleInput) {
+      titleInput.style.border = '2px solid var(--danger-color)';
+      titleInput.focus();
+    }
+    showToast('⚠️ Reminder title is required!', 'warning');
     return;
   }
-  titleInput.style.border = '';
+  if (titleInput) titleInput.style.border = '';
 
-  const selectedDateStr = dueDateInput.value || getFormattedDate(0);
-  const selectedTimeStr = dueTimeInput.value || '18:00';
+  // 2. Date Validation
+  const selectedDateStr = (dueDateInput ? dueDateInput.value : '').trim();
+  if (!selectedDateStr || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDateStr) || isNaN(new Date(selectedDateStr).getTime())) {
+    showToast('⚠️ Valid due date (YYYY-MM-DD) is required!', 'warning');
+    return;
+  }
+
+  // 3. Time Validation
+  const rawTimeStr = (dueTimeInput ? dueTimeInput.value : '').trim();
+  if (!rawTimeStr || !/^\d{1,2}:\d{2}$/.test(rawTimeStr)) {
+    showToast('⚠️ Valid due time (HH:MM) is required!', 'warning');
+    return;
+  }
+  const [h, m] = rawTimeStr.split(':').map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) {
+    showToast('⚠️ Valid due time (00:00 - 23:59) is required!', 'warning');
+    return;
+  }
+  const selectedTimeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
   const selectedDateTime = new Date(`${selectedDateStr}T${selectedTimeStr}:00`);
   const now = new Date();
+  const id = idInput ? idInput.value : '';
 
-  const id = idInput.value;
-
-  // Accidental past-date validation check for NEW reminders (allow 60s grace)
+  // 4. Accidental past-date validation check for NEW reminders (allow 60s grace)
   if (!id && selectedDateTime.getTime() < now.getTime() - 60000) {
     showToast('⚠️ Cannot schedule a reminder in the past! Pick a future date & time.', 'warning');
     return;
@@ -1074,14 +1339,15 @@ async function handleSaveTask(e) {
 
   const payload = {
     title,
-    description: notesInput.value.trim(),
-    notes: notesInput.value.trim(),
+    description: notesInput ? notesInput.value.trim() : '',
+    notes: notesInput ? notesInput.value.trim() : '',
     date: selectedDateStr,
     time: selectedTimeStr,
-    priority: priorityInput.value || 'Medium',
-    category: categoryInput.value || 'Personal',
-    recurrence_type: recurrenceInput.value || 'once',
-    recurrence: recurrenceInput.value || 'once',
+    scheduled_at: `${selectedDateStr}T${selectedTimeStr}:00`,
+    priority: priorityInput ? priorityInput.value : 'Medium',
+    category: categoryInput ? categoryInput.value : 'Personal',
+    recurrence_type: recurrenceInput ? recurrenceInput.value : 'once',
+    recurrence: recurrenceInput ? recurrenceInput.value : 'once',
     tag: tagInput ? tagInput.value.trim() : '',
     location: locationInput ? locationInput.value.trim() : '',
     notification_enabled: notifInput ? (notifInput.checked ? 1 : 0) : 1,
@@ -1089,6 +1355,7 @@ async function handleSaveTask(e) {
     pinned: pinnedInput ? pinnedInput.checked : false
   };
 
+  isSubmittingTaskForm = true;
   if (saveBtn) {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving...';
@@ -1109,6 +1376,7 @@ async function handleSaveTask(e) {
     console.error('Save task error:', err);
     showToast('❌ Error saving task to database', 'danger');
   } finally {
+    isSubmittingTaskForm = false;
     if (saveBtn) {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save Reminder';
