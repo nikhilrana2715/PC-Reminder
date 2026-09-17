@@ -1,11 +1,15 @@
-const CACHE_NAME = 'neumoremind-v5-push-actions';
+const CACHE_NAME = 'neumoremind-v6-icons-ui';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.webmanifest',
-  './assets/icons/favicon.svg'
+  './assets/icons/favicon.svg',
+  './assets/icons/icon-192.png',
+  './assets/icons/icon-512.png',
+  './assets/icons/icon-maskable-192.png',
+  './assets/icons/icon-maskable-512.png'
 ];
 
 // Install Event - App Shell Caching

@@ -1541,18 +1541,50 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 function handlePwaInstall() {
   if (!deferredPwaPrompt) {
-    alert('PWA installation is supported via Chrome / Edge address bar icon.');
+    showToast('ℹ️ PWA installation is supported via your browser address bar install icon.', 'info', 4000);
     return;
   }
   deferredPwaPrompt.prompt();
   deferredPwaPrompt.userChoice.then((result) => {
     if (result.outcome === 'accepted') {
-      console.log('User accepted PWA installation');
+      console.log('[PWA] User accepted installation prompt');
+      showToast('🎉 Thank you for installing NeumoRemind!', 'success');
     }
     deferredPwaPrompt = null;
-    document.getElementById('btn-pwa-install').classList.add('hidden');
+    const installBtn = document.getElementById('btn-pwa-install');
+    if (installBtn) installBtn.classList.add('hidden');
   });
 }
+
+window.addEventListener('appinstalled', () => {
+  deferredPwaPrompt = null;
+  const installBtn = document.getElementById('btn-pwa-install');
+  if (installBtn) installBtn.classList.add('hidden');
+  showToast('🎉 NeumoRemind installed successfully on your device!', 'success', 5000);
+});
+
+// Keyboard Accessibility: Escape key dismisses modals & popovers
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (typeof closeAllPopovers === 'function') closeAllPopovers();
+    const taskModal = document.getElementById('task-modal');
+    if (taskModal && !taskModal.classList.contains('hidden')) {
+      closeTaskModal();
+    }
+    const backupModal = document.getElementById('backup-modal');
+    if (backupModal && !backupModal.classList.contains('hidden')) {
+      backupModal.classList.add('hidden');
+    }
+    const devTestModal = document.getElementById('dev-test-modal');
+    if (devTestModal && !devTestModal.classList.contains('hidden')) {
+      devTestModal.classList.add('hidden');
+    }
+    const alarmModal = document.getElementById('alarm-modal');
+    if (alarmModal && !alarmModal.classList.contains('hidden')) {
+      AlarmEngine.stopRinging();
+    }
+  }
+});
 
 
 // ==========================================================================

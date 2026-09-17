@@ -56,6 +56,8 @@ html[data-theme="light"] {
   --neu-flat-hover: 12px 12px 24px var(--shadow-dark), -12px -12px 24px var(--shadow-light);
   --neu-pressed: inset 5px 5px 10px var(--shadow-dark), inset -5px -5px 10px var(--shadow-light);
   --neu-pressed-deep: inset 7px 7px 14px var(--shadow-dark), inset -7px -7px 14px var(--shadow-light);
+  --neu-convex: linear-gradient(145deg, #f6fcff, #cfd4dd);
+  --neu-concave: linear-gradient(145deg, #cfd4dd, #f6fcff);
   --neu-sm: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
   --neu-badge: 3px 3px 6px var(--shadow-dark), -3px -3px 6px var(--shadow-light);
 }
@@ -76,6 +78,8 @@ html[data-theme="dark"] {
   --neu-flat-hover: 12px 12px 24px var(--shadow-dark), -12px -12px 24px var(--shadow-light);
   --neu-pressed: inset 5px 5px 10px var(--shadow-dark), inset -5px -5px 10px var(--shadow-light);
   --neu-pressed-deep: inset 7px 7px 14px var(--shadow-dark), inset -7px -7px 14px var(--shadow-light);
+  --neu-convex: linear-gradient(145deg, #1b1e27, #171a21);
+  --neu-concave: linear-gradient(145deg, #171a21, #1b1e27);
   --neu-sm: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
   --neu-badge: 3px 3px 6px var(--shadow-dark), -3px -3px 6px var(--shadow-light);
 }
@@ -112,6 +116,24 @@ button, input, select, textarea {
   border: none;
   background: none;
   color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary-color) !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+.neu-btn:focus-visible,
+.neu-icon-btn:focus-visible,
+.neu-input:focus-visible,
+.neu-textarea:focus-visible,
+.neu-dropdown-trigger:focus-visible,
+.neu-datepicker-trigger:focus-visible,
+.neu-timepicker-trigger:focus-visible {
+  outline: 2px solid var(--primary-color) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25) !important;
 }
 
 /* Visually Hidden Helper */
@@ -1641,7 +1663,7 @@ html[data-theme="dark"] .moon-icon {
   }
 }
 
-/* Mobile Small (max-width: 390px / 360px) */
+/* Mobile Small (max-width: 390px) */
 @media (max-width: 390px) {
   .brand-text h1 {
     font-size: 1.3rem;
@@ -1661,6 +1683,50 @@ html[data-theme="dark"] .moon-icon {
     bottom: 8px;
     font-size: 0.7rem;
     padding: 4px 10px;
+  }
+}
+
+/* Ultra-Compact Mobile (max-width: 360px - small Android devices) */
+@media (max-width: 360px) {
+  .app-container {
+    padding: 6px;
+  }
+  .brand-text h1 {
+    font-size: 1.15rem;
+  }
+  .version-tag {
+    font-size: 0.65rem;
+  }
+  .view-title-group h2 {
+    font-size: 1.25rem;
+  }
+  .view-controls {
+    gap: 8px;
+  }
+  .neu-dropdown-trigger {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+  }
+  .task-card {
+    padding: 12px;
+  }
+  .task-title {
+    font-size: 0.95rem;
+  }
+  .task-actions {
+    gap: 6px;
+  }
+  .task-actions .neu-btn-sm {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+  .modal-card {
+    padding: 16px 12px;
+    width: 96vw;
+  }
+  .toggles-row {
+    flex-direction: column;
+    gap: 8px;
   }
 }
 
