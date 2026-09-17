@@ -243,6 +243,21 @@ class ClientReminderScheduler {
         this.triggerReminder(task);
       }, diffMs);
       this.activeTimers.set(task.id, timerId);
+
+      // Also register with Service Worker for OS-level background trigger
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SCHEDULE_TRIGGER',
+          task: {
+            id: task.id,
+            title: task.title,
+            notes: task.notes || task.description,
+            date: task.date,
+            time: task.time,
+            scheduled_at: task.scheduled_at
+          }
+        });
+      }
     }
   }
 
@@ -252,6 +267,12 @@ class ClientReminderScheduler {
   }
 
   cancel(taskId) {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CANCEL_TRIGGER',
+        taskId
+      });
+    }
     if (this.activeTimers.has(taskId)) {
       clearTimeout(this.activeTimers.get(taskId));
       this.activeTimers.delete(taskId);
@@ -1765,7 +1786,33 @@ async function initApp() {
         }, 300000);
       })
       .catch(err => console.error('Service Worker Registration Failed!', err));
+
+    // Handle alarm triggered from Service Worker notification click
+    navigator.serviceWorker.addEventListener('message', async (event) => {
+      if (event.data && event.data.type === 'TRIGGER_ALARM' && event.data.reminderId) {
+        const id = event.data.reminderId;
+        const task = (state && state.rawTasks) ? state.rawTasks.find(t => t.id === id) : await localDB.get(id);
+        if (task && typeof AlarmEngine !== 'undefined' && AlarmEngine.startRinging) {
+          AlarmEngine.startRinging(task);
+        }
+      }
+    });
   }
+
+  // Check if opened from notification with ?alarm=ID
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const alarmId = urlParams.get('alarm');
+    if (alarmId) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setTimeout(async () => {
+        const task = (state && state.rawTasks) ? state.rawTasks.find(t => t.id === alarmId) : await localDB.get(alarmId);
+        if (task && typeof AlarmEngine !== 'undefined' && AlarmEngine.startRinging) {
+          AlarmEngine.startRinging(task);
+        }
+      }, 400);
+    }
+  } catch (e) {}
 
   // Mobile touch audio unlock
   window.addEventListener('touchstart', () => {

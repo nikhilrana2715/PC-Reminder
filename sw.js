@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neumoremind-v8-toggle-ui';
+const CACHE_NAME = 'neumoremind-v9-alarm-ring';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -141,7 +141,8 @@ self.addEventListener('notificationclick', (event) => {
       ]).then(() => focusOrOpenApp())
     );
   } else {
-    event.waitUntil(focusOrOpenApp());
+    // Clicked notification banner body or "Open App" button -> open/focus with alarm trigger
+    event.waitUntil(focusOrOpenApp(reminderId));
   }
 });
 
@@ -154,7 +155,7 @@ self.addEventListener('message', (event) => {
       icon: 'assets/icons/icon-192.png',
       badge: 'assets/icons/favicon.svg',
       tag: task.id,
-      data: { reminderId: task.id, url: './' },
+      data: { reminderId: task.id, url: `./?alarm=${encodeURIComponent(task.id)}` },
       actions: [
         { action: 'complete', title: '✓ Complete' },
         { action: 'snooze_10m', title: '💤 Snooze 10m' },
@@ -165,6 +166,44 @@ self.addEventListener('message', (event) => {
       silent: false
     };
     self.registration.showNotification(`⏰ ${task.title}`, options);
+  }
+
+  // OS-level Notification Trigger via Notification Triggers API
+  if (event.data && event.data.type === 'SCHEDULE_TRIGGER' && event.data.task) {
+    const task = event.data.task;
+    if ('showTrigger' in Notification.prototype && typeof TimestampTrigger !== 'undefined') {
+      try {
+        const scheduledTime = new Date(task.scheduled_at || `${task.date}T${task.time}:00`).getTime();
+        if (scheduledTime > Date.now()) {
+          self.registration.showNotification(`⏰ ${task.title}`, {
+            body: task.notes || task.description || `Reminder scheduled for ${task.time}`,
+            icon: 'assets/icons/icon-192.png',
+            badge: 'assets/icons/favicon.svg',
+            tag: task.id,
+            showTrigger: new TimestampTrigger(scheduledTime),
+            data: { reminderId: task.id, url: `./?alarm=${encodeURIComponent(task.id)}` },
+            actions: [
+              { action: 'complete', title: '✓ Complete' },
+              { action: 'snooze_10m', title: '💤 Snooze 10m' },
+              { action: 'open', title: '📖 Open App' }
+            ],
+            requireInteraction: true,
+            vibrate: [350, 150, 350, 150, 500],
+            silent: false
+          });
+          console.log('[SW] Scheduled OS Notification Trigger for:', task.title);
+        }
+      } catch (e) {
+        console.warn('[SW] TimestampTrigger error:', e);
+      }
+    }
+  }
+
+  // Cancel trigger if reminder was deleted/completed
+  if (event.data && event.data.type === 'CANCEL_TRIGGER' && event.data.taskId) {
+    self.registration.getNotifications({ tag: event.data.taskId }).then((notifications) => {
+      notifications.forEach((n) => n.close());
+    }).catch(() => {});
   }
 
   // Foreground heartbeat — restart alarm loop when app opens
@@ -271,16 +310,20 @@ self.addEventListener('activate', () => {
   startBackgroundAlarmChecker();
 });
 
-// Helper: Open or focus active browser window
-function focusOrOpenApp() {
+// Helper: Open or focus active browser window and trigger alarm
+function focusOrOpenApp(reminderId) {
+  const targetUrl = reminderId ? `./?alarm=${encodeURIComponent(reminderId)}` : './';
   return clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
     for (const client of clientList) {
       if (client.url.includes(self.location.origin) && 'focus' in client) {
+        if (reminderId) {
+          client.postMessage({ type: 'TRIGGER_ALARM', reminderId });
+        }
         return client.focus();
       }
     }
     if (clients.openWindow) {
-      return clients.openWindow('./');
+      return clients.openWindow(targetUrl);
     }
   });
 }
