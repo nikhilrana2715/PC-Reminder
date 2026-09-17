@@ -832,9 +832,14 @@ function updateOnlineStatus(isOnline = navigator.onLine) {
   const text = document.getElementById('status-text');
   if (!bar || !text) return;
 
-  if (isOnline) {
+  const activeApi = (typeof API_BASE !== 'undefined' ? API_BASE : '') || '';
+
+  if (activeApi) {
     bar.className = 'online-status-bar online';
-    text.textContent = 'Online — DB Sync Active';
+    text.textContent = '🟢 Server Connected — Background Push Active';
+  } else if (isOnline) {
+    bar.className = 'online-status-bar online';
+    text.textContent = '⚡ GitHub Pages (Static Mode) — Use http://localhost:3001 for closed-app Push';
   } else {
     bar.className = 'online-status-bar offline';
     text.textContent = 'Offline Mode (Local Cache)';
