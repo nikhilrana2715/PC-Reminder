@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neumoremind-v6-icons-ui';
+const CACHE_NAME = 'neumoremind-v7-bg-alarm';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -164,6 +164,101 @@ self.addEventListener('message', (event) => {
     };
     self.registration.showNotification(`⏰ ${task.title}`, options);
   }
+
+  // Foreground heartbeat — restart alarm loop when app opens
+  if (event.data && event.data.type === 'HEARTBEAT') {
+    startBackgroundAlarmChecker();
+  }
+});
+
+// ===================== Background Alarm Checker =====================
+// Checks IndexedDB every 30s for due reminders and fires notifications
+// even when the app tab is closed. The SW stays alive as long as
+// it has pending waitUntil promises or active timers.
+let _alarmCheckerRunning = false;
+const ALARM_CHECK_INTERVAL_MS = 30000; // 30 seconds
+
+function startBackgroundAlarmChecker() {
+  if (_alarmCheckerRunning) return;
+  _alarmCheckerRunning = true;
+  console.log('[SW] Background alarm checker started');
+  scheduleNextAlarmCheck();
+}
+
+function scheduleNextAlarmCheck() {
+  setTimeout(() => {
+    checkDueReminders().then(() => {
+      if (_alarmCheckerRunning) scheduleNextAlarmCheck();
+    }).catch(() => {
+      if (_alarmCheckerRunning) scheduleNextAlarmCheck();
+    });
+  }, ALARM_CHECK_INTERVAL_MS);
+}
+
+async function checkDueReminders() {
+  try {
+    const db = await openLocalDB();
+    if (!db) return;
+
+    const now = Date.now();
+    const allTasks = await new Promise((resolve) => {
+      const tx = db.transaction('reminders', 'readonly');
+      const store = tx.objectStore('reminders');
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+
+    for (const task of allTasks) {
+      // Skip completed tasks
+      if (task.completed === 1 || task.completionStatus === 'completed') continue;
+      // Skip tasks with notifications disabled
+      if (task.notificationEnabled === false || task.notification_enabled === 0) continue;
+
+      const scheduledAt = task.scheduled_at || (task.date && task.time ? `${task.date}T${task.time}:00` : null);
+      if (!scheduledAt) continue;
+
+      const dueTime = new Date(scheduledAt).getTime();
+      if (isNaN(dueTime)) continue;
+
+      // Is it due? (within the last 5 minutes — don't fire very old ones)
+      if (dueTime <= now && (now - dueTime) < 300000) {
+        // Check if we already notified for this one (prevent duplicate notifications)
+        const lastNotified = task.last_notified_at ? new Date(task.last_notified_at).getTime() : 0;
+        if (lastNotified && (now - lastNotified) < 300000) continue;
+
+        // Fire notification
+        const title = task.title || 'Reminder';
+        const options = {
+          body: task.description || task.notes || 'Reminder scheduled time reached',
+          icon: 'assets/icons/favicon.svg',
+          badge: 'assets/icons/favicon.svg',
+          tag: task.id,
+          data: { reminderId: task.id, url: './' },
+          actions: [
+            { action: 'complete', title: '✓ Complete' },
+            { action: 'snooze_10m', title: '💤 Snooze 10m' },
+            { action: 'open', title: '📖 Open App' }
+          ],
+          requireInteraction: true,
+          vibrate: [250, 150, 250, 150, 350]
+        };
+
+        await self.registration.showNotification(`⏰ ${title}`, options);
+
+        // Mark as notified to prevent duplicates
+        await updateIndexedDBTask(task.id, { last_notified_at: new Date().toISOString() });
+        console.log('[SW] Background alarm fired for:', task.id, title);
+      }
+    }
+  } catch (e) {
+    console.warn('[SW] Background alarm check error:', e);
+  }
+}
+
+// Start checker on SW activate
+self.addEventListener('activate', () => {
+  startBackgroundAlarmChecker();
 });
 
 // Helper: Open or focus active browser window

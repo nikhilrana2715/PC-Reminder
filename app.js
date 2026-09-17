@@ -914,21 +914,37 @@ function requestNotificationPermission() {
   });
 }
 
+// SVG icon constants for toggle buttons
+const SVG_SOUND_ON = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>';
+const SVG_SOUND_OFF = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line>';
+const SVG_BELL_ON = '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>';
+const SVG_BELL_OFF = '<path d="M13.73 21a2 2 0 0 1-3.46 0"></path><path d="M18.63 13A17.89 17.89 0 0 1 18 8"></path><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+
+function updateSoundBtnIcon() {
+  const svg = document.getElementById('sound-icon-svg');
+  if (!svg) return;
+  svg.innerHTML = state.soundEnabled ? SVG_SOUND_ON : SVG_SOUND_OFF;
+}
+
 function updateNotificationBtnState(permission = (('Notification' in window) ? Notification.permission : 'default')) {
   const btn = document.getElementById('btn-toggle-notif');
   if (!btn) return;
+  const svg = document.getElementById('notif-icon-svg');
   if (permission === 'granted') {
     btn.classList.add('active');
     btn.classList.remove('denied');
     btn.title = 'Web Push Notifications Active';
+    if (svg) svg.innerHTML = SVG_BELL_ON;
   } else if (permission === 'denied') {
     btn.classList.remove('active');
     btn.classList.add('denied');
     btn.title = 'Notifications Blocked in Browser Settings';
+    if (svg) svg.innerHTML = SVG_BELL_OFF;
   } else {
     btn.classList.remove('active');
     btn.classList.remove('denied');
     btn.title = 'Click to Enable Web Push Notifications';
+    if (svg) svg.innerHTML = SVG_BELL_OFF;
   }
 }
 
@@ -1715,6 +1731,16 @@ async function initApp() {
         if (Notification.permission === 'granted') {
           subscribeUserToPush();
         }
+        // Send heartbeat to activate background alarm checker in SW
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'HEARTBEAT' });
+        }
+        // Periodic heartbeat every 5 minutes to keep SW alarm checker alive
+        setInterval(() => {
+          if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'HEARTBEAT' });
+          }
+        }, 300000);
       })
       .catch(err => console.error('Service Worker Registration Failed!', err));
   }
@@ -1738,9 +1764,14 @@ async function initApp() {
 
   const soundBtn = document.getElementById('btn-toggle-sound');
   if (soundBtn) {
+    // Set initial icon based on saved state
+    updateSoundBtnIcon();
+    if (!state.soundEnabled) soundBtn.classList.remove('active');
+
     soundBtn.addEventListener('click', () => {
       state.soundEnabled = !state.soundEnabled;
       localStorage.setItem('neumoremind_sound_v1', state.soundEnabled);
+      updateSoundBtnIcon();
       if (state.soundEnabled) {
         soundBtn.classList.add('active');
         playClickSound();
